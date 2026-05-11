@@ -8,7 +8,6 @@ from typing import Any
 import numpy as np
 import torch
 
-
 # =====================================
 # DATA CLASSES
 # =====================================
@@ -154,7 +153,9 @@ def get_torch_device(device_str: str, silent: bool = False) -> torch.device:
                 f"CUDA version: {torch.version.cuda}, "
                 f"memory: {properties.total_memory // (1024**3)} GB"
             )
-        print(f"- CPU - OS cores: {os.cpu_count()}, torch threads: {torch.get_num_threads()}")
+        print(
+            f"- CPU - OS cores: {os.cpu_count()}, torch threads: {torch.get_num_threads()}"
+        )
         print(f"Using '{device.type}' as computation device.")
     return device
 
@@ -178,7 +179,9 @@ def logspace_int(start: int, stop: int, num: int) -> torch.Tensor:
     if start <= 0 or stop < start:
         raise ValueError("Require 0 < start <= stop.")
     if num > (stop - start + 1):
-        raise ValueError(f"Cannot generate {num} unique integers between {start} and {stop}.")
+        raise ValueError(
+            f"Cannot generate {num} unique integers between {start} and {stop}."
+        )
     vals = np.logspace(np.log10(start), np.log10(stop), num)
     res = torch.zeros(num, dtype=torch.int64)
     current = int(start)
@@ -304,7 +307,7 @@ def load_simulation_data(
         states = states.to(dtype=dtype)
         povm = povm.to(dtype=dtype)
     outcomes = data.get("outcomes")
-    d = int(data.get("d", round(states.shape[0] ** 0.5)))
+    d = int(data.get("d", int(states.shape[0] ** 0.5)))
     n_out = int(data.get("n_out", povm.shape[0]))
     return SimulationData(
         states=states,

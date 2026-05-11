@@ -8,7 +8,6 @@ import torch
 from .core import get_complex_dtype
 from .quantum import get_observables
 
-
 # =====================================
 # HELPERS
 # =====================================
@@ -21,7 +20,9 @@ def _as_observable_matrix(observable: torch.Tensor, d2: int) -> torch.Tensor:
         return observable.T
     if observable.ndim == 2 and observable.shape[1] == d2:
         return observable
-    raise ValueError(f"observable must have shape (d^2,), (n_obs, d^2), or (d^2, n_obs); got {tuple(observable.shape)}.")
+    raise ValueError(
+        f"observable must have shape (d^2,), (n_obs, d^2), or (d^2, n_obs); got {tuple(observable.shape)}."
+    )
 
 
 def pinv_truncated(matrix: torch.Tensor, rank: int) -> torch.Tensor:
@@ -110,10 +111,16 @@ class ShadowReadoutEstimator:
             None.
         """
         self.total_samples = 0
-        self.raw_mu_acc = torch.zeros((self.n_out, self.d2), device=self.device, dtype=self.cdtype)
-        self.prob_sum_acc = torch.zeros(self.n_out, device=self.device, dtype=self.dtype)
+        self.raw_mu_acc = torch.zeros(
+            (self.n_out, self.d2), device=self.device, dtype=self.cdtype
+        )
+        self.prob_sum_acc = torch.zeros(
+            self.n_out, device=self.device, dtype=self.dtype
+        )
         if self.accumulate_state_frame:
-            self.S_acc = torch.zeros((self.d2, self.d2), device=self.device, dtype=self.cdtype)
+            self.S_acc = torch.zeros(
+                (self.d2, self.d2), device=self.device, dtype=self.cdtype
+            )
 
     def update_probs(self, probs: torch.Tensor, states: torch.Tensor) -> None:
         """Update from dense probabilities.
@@ -123,7 +130,9 @@ class ShadowReadoutEstimator:
             states (torch.Tensor): Flattened density matrices with shape (d^2, n_batch).
         """
         if probs.shape[0] != self.n_out or states.shape[0] != self.d2:
-            raise ValueError("Expected probs (n_out, n_batch) and states (d^2, n_batch).")
+            raise ValueError(
+                "Expected probs (n_out, n_batch) and states (d^2, n_batch)."
+            )
         if probs.shape[1] != states.shape[1]:
             raise ValueError("probs and states must have the same batch size.")
         p = probs.to(device=self.device, dtype=self.dtype)
@@ -177,13 +186,17 @@ class ShadowReadoutEstimator:
         rho_cols = states.to(device=self.device, dtype=self.cdtype)
         rho_rows = rho_cols.T.contiguous().repeat_interleave(n_shots, dim=0) / n_shots
         self.raw_mu_acc.index_add_(0, idx, rho_rows)
-        weights = torch.full((idx.numel(),), 1.0 / n_shots, device=self.device, dtype=self.dtype)
+        weights = torch.full(
+            (idx.numel(),), 1.0 / n_shots, device=self.device, dtype=self.dtype
+        )
         self.prob_sum_acc.index_add_(0, idx, weights)
         if self.accumulate_state_frame:
             self.S_acc.addmm_(rho_cols, rho_cols.adjoint())
         self.total_samples += n_batch
 
-    def estimated_povm(self, adaptive_state: bool = False, rcond: float = 1e-10) -> tuple[torch.Tensor, torch.Tensor | None]:
+    def estimated_povm(
+        self, adaptive_state: bool = False, rcond: float = 1e-10
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Compute the estimated POVM after state-frame inversion.
 
         Args:
@@ -198,10 +211,14 @@ class ShadowReadoutEstimator:
         averaged_raw_mu = self.raw_mu_acc / self.total_samples
         if adaptive_state:
             if not self.accumulate_state_frame:
-                raise RuntimeError("adaptive_state=True requires accumulate_state_frame=True.")
+                raise RuntimeError(
+                    "adaptive_state=True requires accumulate_state_frame=True."
+                )
             s_inv = torch.linalg.pinv(self.S_acc / self.total_samples, rcond=rcond)
             return torch.matmul(averaged_raw_mu, s_inv.T), None
-        avg_probs = (self.prob_sum_acc / self.total_samples).view(-1, 1).to(dtype=self.cdtype)
+        avg_probs = (
+            (self.prob_sum_acc / self.total_samples).view(-1, 1).to(dtype=self.cdtype)
+        )
         est_povm = self.d * (self.d + 1) * averaged_raw_mu
         est_povm = est_povm + (-self.d) * torch.matmul(avg_probs, self.vec_i)
         return est_povm, (self.d * avg_probs).to(dtype=self.cdtype)
@@ -228,9 +245,13 @@ class ShadowReadoutEstimator:
             if traces is None:
                 traces = torch.sum(estimated_povm * self.vec_i, dim=1, keepdim=True)
             dual_t = (self.n_out + 1) * estimated_povm
-            dual_t = dual_t - ((self.n_out + 1) / (self.d + 1)) * torch.matmul(traces, self.vec_i)
+            dual_t = dual_t - ((self.n_out + 1) / (self.d + 1)) * torch.matmul(
+                traces, self.vec_i
+            )
             return dual_t.T
-        frame = torch.matmul(estimated_povm.T, estimated_povm.conj()).to(dtype=self.cdtype)
+        frame = torch.matmul(estimated_povm.T, estimated_povm.conj()).to(
+            dtype=self.cdtype
+        )
         frame_inv = torch.linalg.pinv(frame, rcond=rcond)
         return torch.matmul(frame_inv, estimated_povm.T)
 
@@ -254,9 +275,15 @@ class ShadowReadoutEstimator:
         Returns:
             torch.Tensor: Readout layer with shape (n_obs, n_out).
         """
-        obs = _as_observable_matrix(observable, self.d2).to(device=self.device, dtype=self.cdtype)
-        povm, traces = self.estimated_povm(adaptive_state=adaptive_state, rcond=rcond_state)
-        dual = self.dual_frame(povm, prior_frame=prior_frame, traces=traces, rcond=rcond_frame)
+        obs = _as_observable_matrix(observable, self.d2).to(
+            device=self.device, dtype=self.cdtype
+        )
+        povm, traces = self.estimated_povm(
+            adaptive_state=adaptive_state, rcond=rcond_state
+        )
+        dual = self.dual_frame(
+            povm, prior_frame=prior_frame, traces=traces, rcond=rcond_frame
+        )
         return torch.matmul(obs.conj(), dual).real.to(dtype=self.dtype)
 
     def layers(
@@ -324,8 +351,12 @@ class LinearReadoutEstimator:
         Args:
             None.
         """
-        self.G = torch.zeros((self.n_out, self.n_out), device=self.device, dtype=self.dtype)
-        self.C = torch.zeros((self.n_obs, self.n_out), device=self.device, dtype=self.dtype)
+        self.G = torch.zeros(
+            (self.n_out, self.n_out), device=self.device, dtype=self.dtype
+        )
+        self.C = torch.zeros(
+            (self.n_obs, self.n_out), device=self.device, dtype=self.dtype
+        )
 
     def update_probs(self, probs: torch.Tensor, targets: torch.Tensor) -> None:
         """Update dense normal-equation accumulators.
@@ -335,7 +366,9 @@ class LinearReadoutEstimator:
             targets (torch.Tensor): Target matrix with shape (n_obs, n_batch).
         """
         if probs.shape[0] != self.n_out or targets.shape[0] != self.n_obs:
-            raise ValueError("Expected probs (n_out, n_batch) and targets (n_obs, n_batch).")
+            raise ValueError(
+                "Expected probs (n_out, n_batch) and targets (n_obs, n_batch)."
+            )
         if probs.shape[1] != targets.shape[1]:
             raise ValueError("probs and targets must have the same batch size.")
         p = probs.to(device=self.device, dtype=self.dtype)
@@ -370,7 +403,9 @@ class LinearReadoutEstimator:
             torch.Tensor: Readout layer with shape (n_obs, n_out).
         """
         eye = torch.eye(self.n_out, device=self.device, dtype=self.dtype)
-        return torch.linalg.solve(self.G + alpha * eye, self.C, left=False).to(dtype=self.dtype)
+        return torch.linalg.solve(self.G + alpha * eye, self.C, left=False).to(
+            dtype=self.dtype
+        )
 
 
 # =====================================
@@ -399,7 +434,9 @@ class RunningOutcomeStats:
         self.n_states = n_states
         self.device = torch.device(device)
         self.dtype = dtype
-        self.increments = (torch.arange(n_states, device=self.device) * n_out).unsqueeze(1)
+        self.increments = (
+            torch.arange(n_states, device=self.device) * n_out
+        ).unsqueeze(1)
         self.reset()
 
     def reset(self) -> None:
@@ -408,7 +445,9 @@ class RunningOutcomeStats:
         Args:
             None.
         """
-        self.count_acc = torch.zeros((self.n_out, self.n_states), device=self.device, dtype=self.dtype)
+        self.count_acc = torch.zeros(
+            (self.n_out, self.n_states), device=self.device, dtype=self.dtype
+        )
         self.total_shots = 0
 
     def update(self, outcomes_chunk: torch.Tensor) -> None:
@@ -420,11 +459,16 @@ class RunningOutcomeStats:
         if outcomes_chunk.ndim == 1:
             outcomes_chunk = outcomes_chunk.reshape(-1, 1)
         if outcomes_chunk.shape[0] != self.n_states:
-            raise ValueError("Expected outcomes_chunk with shape (n_states, n_new_shots).")
+            raise ValueError(
+                "Expected outcomes_chunk with shape (n_states, n_new_shots)."
+            )
         n_new = outcomes_chunk.shape[1]
         if n_new == 0:
             return
-        linear_indices = (outcomes_chunk.to(device=self.device, dtype=torch.long) + self.increments[:, :n_new]).flatten()
+        linear_indices = (
+            outcomes_chunk.to(device=self.device, dtype=torch.long)
+            + self.increments[:, :n_new]
+        ).flatten()
         counts = torch.bincount(linear_indices, minlength=self.n_states * self.n_out)
         self.count_acc += counts.view(self.n_states, self.n_out).T.to(dtype=self.dtype)
         self.total_shots += n_new
@@ -472,6 +516,8 @@ def train_linear_from_probs(
     """
     obs = _as_observable_matrix(observable, states.shape[0])
     targets = get_observables(obs, states)
-    est = LinearReadoutEstimator(probs.shape[0], obs.shape[0], device=probs.device, dtype=probs.dtype)
+    est = LinearReadoutEstimator(
+        probs.shape[0], obs.shape[0], device=probs.device, dtype=probs.dtype
+    )
     est.update_probs(probs, targets)
     return est.layer_pinv(tol=tol)

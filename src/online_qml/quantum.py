@@ -4,7 +4,6 @@ from math import sqrt
 
 import torch
 
-
 # =====================================
 # STATES AND OBSERVABLES
 # =====================================
@@ -224,7 +223,9 @@ def shots_to_statistics(outcomes: torch.Tensor, n_out: int) -> torch.Tensor:
 # =====================================
 
 
-def vec_identity(d: int, device: torch.device | str = "cpu", dtype: torch.dtype = torch.cfloat) -> torch.Tensor:
+def vec_identity(
+    d: int, device: torch.device | str = "cpu", dtype: torch.dtype = torch.cfloat
+) -> torch.Tensor:
     """Return the flattened identity matrix.
 
     Args:
@@ -346,7 +347,9 @@ def frame_relative_spectrum(
     keep = evals > rcond * evals.max()
     if not torch.any(keep):
         raise ValueError("reference frame has no eigenvalues above cutoff.")
-    inv_sqrt = (evecs[:, keep] / torch.sqrt(evals[keep]).unsqueeze(0)) @ evecs[:, keep].adjoint()
+    inv_sqrt = (evecs[:, keep] / torch.sqrt(evals[keep]).unsqueeze(0)) @ evecs[
+        :, keep
+    ].adjoint()
     whitened = inv_sqrt @ empirical @ inv_sqrt
     whitened = 0.5 * (whitened + whitened.adjoint())
     return torch.linalg.eigvalsh(whitened).real
@@ -419,7 +422,9 @@ def get_test_input(
     return probs, get_observables(observables, states)
 
 
-def get_test_mse(layer: torch.Tensor, test_obs: torch.Tensor, test_probs: torch.Tensor) -> torch.Tensor:
+def get_test_mse(
+    layer: torch.Tensor, test_obs: torch.Tensor, test_probs: torch.Tensor
+) -> torch.Tensor:
     """Compute empirical test MSE.
 
     Args:

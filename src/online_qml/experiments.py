@@ -5,7 +5,11 @@ from typing import Iterable
 import torch
 
 from .core import LayerResult, MetricResult, SimulationData
-from .estimators import LinearReadoutEstimator, RunningOutcomeStats, ShadowReadoutEstimator
+from .estimators import (
+    LinearReadoutEstimator,
+    RunningOutcomeStats,
+    ShadowReadoutEstimator,
+)
 from .evaluation import evaluate_layers_haar, fit_beta_coefficients
 from .quantum import (
     frame_distance_summary,
@@ -18,7 +22,6 @@ from .quantum import (
     shots_to_statistics,
     state_frame,
 )
-
 
 # =====================================
 # LAYER GENERATION
@@ -83,9 +86,17 @@ def make_layers_ntrain_grid(
         raise ValueError("make_layers_ntrain_grid requires stored outcomes.")
     device = data.states.device
     obs = observable.to(device=device)
-    n_obs = 1 if obs.ndim == 1 else (obs.shape[0] if obs.shape[-1] == data.d * data.d else obs.shape[1])
+    n_obs = (
+        1
+        if obs.ndim == 1
+        else (obs.shape[0] if obs.shape[-1] == data.d * data.d else obs.shape[1])
+    )
     shadow_est = ShadowReadoutEstimator(data.n_out, data.d, device=device, dtype=dtype)
-    linear_est = LinearReadoutEstimator(data.n_out, n_obs, device=device, dtype=dtype) if linear_methods else None
+    linear_est = (
+        LinearReadoutEstimator(data.n_out, n_obs, device=device, dtype=dtype)
+        if linear_methods
+        else None
+    )
     layers: dict[str, list[torch.Tensor]] = {method: [] for method in shadow_methods}
     for method in linear_methods:
         layers[method] = []
@@ -101,14 +112,20 @@ def make_layers_ntrain_grid(
         for method, layer in shadow_est.layers(obs, methods=shadow_methods).items():
             layers[method].append(layer.detach().clone())
         if linear_est is not None:
-            probs_slice = shots_to_statistics(outcomes_slice, data.n_out).to(device=device, dtype=dtype)
+            probs_slice = shots_to_statistics(outcomes_slice, data.n_out).to(
+                device=device, dtype=dtype
+            )
             targets = get_observables(obs, states_slice).to(dtype=dtype)
             linear_est.update_probs(probs_slice, targets)
             for method in linear_methods:
                 if method == "pinv":
-                    layers[method].append(linear_est.layer_pinv(tol=pinv_tol).detach().clone())
+                    layers[method].append(
+                        linear_est.layer_pinv(tol=pinv_tol).detach().clone()
+                    )
                 elif method == "ridge":
-                    layers[method].append(linear_est.layer_ridge(alpha=ridge_alpha).detach().clone())
+                    layers[method].append(
+                        linear_est.layer_ridge(alpha=ridge_alpha).detach().clone()
+                    )
                 else:
                     raise ValueError(f"Unknown linear method '{method}'.")
         prev_n = n_train
@@ -158,7 +175,11 @@ def make_layers_shot_grid(
     obs = observable.to(device=device)
     states = data.states[:, :n_train]
     outcomes = data.outcomes[:n_train]
-    n_obs = 1 if obs.ndim == 1 else (obs.shape[0] if obs.shape[-1] == data.d * data.d else obs.shape[1])
+    n_obs = (
+        1
+        if obs.ndim == 1
+        else (obs.shape[0] if obs.shape[-1] == data.d * data.d else obs.shape[1])
+    )
     stats = RunningOutcomeStats(data.n_out, n_train, device=device, dtype=dtype)
     layers: dict[str, list[torch.Tensor]] = {method: [] for method in shadow_methods}
     for method in linear_methods:
@@ -169,18 +190,26 @@ def make_layers_shot_grid(
         n_shots = int(n_shots_tensor.item())
         stats.update(outcomes[:, prev_s:n_shots])
         probs = stats.probabilities()
-        shadow_est = ShadowReadoutEstimator(data.n_out, data.d, device=device, dtype=dtype)
+        shadow_est = ShadowReadoutEstimator(
+            data.n_out, data.d, device=device, dtype=dtype
+        )
         shadow_est.update_probs(probs, states)
         for method, layer in shadow_est.layers(obs, methods=shadow_methods).items():
             layers[method].append(layer.detach().clone())
         if linear_methods:
-            linear_est = LinearReadoutEstimator(data.n_out, n_obs, device=device, dtype=dtype)
+            linear_est = LinearReadoutEstimator(
+                data.n_out, n_obs, device=device, dtype=dtype
+            )
             linear_est.update_probs(probs, targets)
             for method in linear_methods:
                 if method == "pinv":
-                    layers[method].append(linear_est.layer_pinv(tol=pinv_tol).detach().clone())
+                    layers[method].append(
+                        linear_est.layer_pinv(tol=pinv_tol).detach().clone()
+                    )
                 elif method == "ridge":
-                    layers[method].append(linear_est.layer_ridge(alpha=ridge_alpha).detach().clone())
+                    layers[method].append(
+                        linear_est.layer_ridge(alpha=ridge_alpha).detach().clone()
+                    )
                 else:
                     raise ValueError(f"Unknown linear method '{method}'.")
         prev_s = n_shots
@@ -252,7 +281,13 @@ def state_frame_distance_grid(
     if states is None:
         states = sample_dm(n_max, d=d, device=device, dtype=dtype)
     ref = haar_state_frame(d, device=states.device, dtype=states.dtype)
-    out: dict[str, list[torch.Tensor]] = {"rel_op": [], "rel_fro": [], "lambda_min": [], "lambda_max": [], "condition": []}
+    out: dict[str, list[torch.Tensor]] = {
+        "rel_op": [],
+        "rel_fro": [],
+        "lambda_min": [],
+        "lambda_max": [],
+        "condition": [],
+    }
     for n_train_tensor in train_grid:
         n_train = int(n_train_tensor.item())
         emp = state_frame(states[:, :n_train], normalize=True)
@@ -279,7 +314,13 @@ def measurement_frame_distance_grid(
     Returns:
         dict[str, torch.Tensor]: Distance metrics with shape (n_out_grid,).
     """
-    out: dict[str, list[torch.Tensor]] = {"rel_op": [], "rel_fro": [], "lambda_min": [], "lambda_max": [], "condition": []}
+    out: dict[str, list[torch.Tensor]] = {
+        "rel_op": [],
+        "rel_fro": [],
+        "lambda_min": [],
+        "lambda_max": [],
+        "condition": [],
+    }
     for n_out_tensor in n_out_grid:
         n_out = int(n_out_tensor.item())
         povm = sample_povm(n_out, d=d, device=device, dtype=dtype)

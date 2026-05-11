@@ -7,7 +7,6 @@ import torch
 
 from .quantum import get_test_mse, infinite_stats, sample_dm
 
-
 # =====================================
 # HAAR BIAS AND VARIANCE
 # =====================================
@@ -27,7 +26,9 @@ class HaarBiasVariance:
             observable = observable.reshape(1, -1)
         self.observable = observable
         if self.observable.shape[0] != 1:
-            raise ValueError("HaarBiasVariance currently supports one observable with shape (1, d^2).")
+            raise ValueError(
+                "HaarBiasVariance currently supports one observable with shape (1, d^2)."
+            )
         self.precompute()
 
     def precompute(self) -> None:
@@ -111,7 +112,11 @@ def evaluate_layers_haar(
                 out[f"{method}_{key}"] = val
         else:
             flat = layer.reshape(-1, layer.shape[-2], layer.shape[-1])
-            vals: dict[str, list[torch.Tensor]] = {"variance": [], "bias2": [], "mse_exact_probs": []}
+            vals: dict[str, list[torch.Tensor]] = {
+                "variance": [],
+                "bias2": [],
+                "mse_exact_probs": [],
+            }
             for item in flat:
                 metrics = evaluator.evaluate(item)
                 for key in vals:
@@ -148,7 +153,10 @@ def evaluate_layers_empirical_mse(
         states = test_states.to(device=povm.device, dtype=povm.dtype)
     probs = infinite_stats(povm, states)
     obs_vals = torch.matmul(observable.to(povm.dtype).conj(), states).real
-    return {f"{method}_mse_test": get_test_mse(layer, obs_vals, probs) for method, layer in layers.items()}
+    return {
+        f"{method}_mse_test": get_test_mse(layer, obs_vals, probs)
+        for method, layer in layers.items()
+    }
 
 
 # =====================================
