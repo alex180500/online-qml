@@ -1,0 +1,188 @@
+name: "Automatic Tag, Release and Changelog"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - pyproject.toml
+
+jobs:
+  tag-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check for version change or manual dispatch
+        id: version_check
+        shell: bash
+        run: |
+          current_version="$(
+            grep -m1 '^version = ' pyproject.toml |
+              cut -d'"' -f2
+          )"
+
+          echo "current_version=${current_version}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${current_version}" >> "$GITHUB_OUTPUT"
+          previous_tag="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+          echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version_changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff "${{ github.event.before }}" "${{ github.sha }}" -- 'pyproject.toml' | grep -q '^[+-]version ='; then
+            echo "version_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node.js
+        if: steps.version_check.outputs.version_changed == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "lts/*"
+
+      - name: Install changelog tools
+        if: steps.version_check.outputs.version_changed == 'true'
+        shell: bash
+        run: |
+          npm install --no-save conventional-changelog@7 conventional-changelog-conventionalcommits@9
+
+      - name: Generate conventional changelog
+        if: steps.version_check.outputs.version_changed == 'true'
+        shell: bash
+        run: |
+          cat > conventional-changelog-context.json <<EOF
+          {
+            "currentTag": "${{ steps.version_check.outputs.tag }}",
+            "previousTag": "${{ steps.version_check.outputs.previous_tag }}",
+            "version": "${{ steps.version_check.outputs.current_version }}",
+            "linkCompare": true
+          }
+          EOF
+
+          npx conventional-changelog -p conventionalcommits -r 1 --stdout -i /dev/null -c conventional-changelog-context.json > release-notes.md
+
+      - name: Create and push tag
+        if: steps.version_check.outputs.version_changed == 'true'
+        id: create_tag
+        uses: actions/github-script@v9
+        env:
+          TAG_NAME: ${{ steps.version_check.outputs.tag }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            const tagName = process.env.TAG_NAME;
+            const ref = `refs/tags/${tagName}`;
+
+            try {
+              await github.rest.git.getRef({ owner, repo, ref });
+              core.setOutput("tag_exists", "true");
+              return;
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+            const tagObject = await github.rest.git.createTag({
+              owner,
+              repo,
+              tag: tagName,
+              message: tagName,
+              object: context.sha,
+              type: "commit",
+              tagger: {
+                name: "github-actions[bot]",
+                email: "41898282+github-actions[bot]@users.noreply.github.com",
+                date: new Date().toISOString(),
+              },
+            });
+
+            await github.rest.git.createRef({
+              owner,
+              repo,
+              ref,
+              sha: tagObject.data.sha,
+            });
+
+            core.setOutput("tag_exists", "false");
+
+      - name: Create GitHub release
+        if: steps.version_check.outputs.version_changed == 'true'
+        uses: actions/github-script@v9
+        env:
+          TAG_NAME: ${{ steps.version_check.outputs.tag }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require("node:fs");
+            const { owner, repo } = context.repo;
+            const tagName = process.env.TAG_NAME;
+            const notes = fs.readFileSync("release-notes.md", "utf8");
+
+            let release;
+            try {
+              release = await github.rest.repos.getReleaseByTag({
+                owner,
+                repo,
+                tag: tagName,
+              });
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+            if (release) {
+              await github.rest.repos.updateRelease({
+                owner,
+                repo,
+                release_id: release.data.id,
+                tag_name: tagName,
+                name: tagName,
+                body: notes,
+                target_commitish: context.sha,
+                draft: false,
+                prerelease: false,
+              });
+            } else {
+              await github.rest.repos.createRelease({
+                owner,
+                repo,
+                tag_name: tagName,
+                name: tagName,
+                body: notes,
+                target_commitish: context.sha,
+                draft: false,
+                prerelease: false,
+              });
+            }
+
+      - name: Dispatch PyPI release workflow
+        if: steps.version_check.outputs.version_changed == 'true'
+        uses: actions/github-script@v9
+        env:
+          TAG_NAME: ${{ steps.version_check.outputs.tag }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            const workflowId = "release.yml";
+            const ref = context.payload.repository?.default_branch ?? "main";
+            const tagName = process.env.TAG_NAME;
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: workflowId,
+              ref,
+              inputs: {
+                tag_name: tagName,
+              },
+            });

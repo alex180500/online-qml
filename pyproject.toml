@@ -1,0 +1,32 @@
+[project]
+name = "online-qml"
+version = "0.1.0"
+description = "Online quantum machine learning package, using PyTorch."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [ { name = "Alessandro Romancino" } ]
+keywords = ["quantum", "machine-learning", "shadow-tomography", "pytorch"]
+classifiers = [
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering :: Physics"
+]
+dependencies = [
+    "numpy>=2.4",
+    "torch>=2.11",
+]
+
+[project.urls]
+Repository = "https://github.com/alex180500/online-qml"
+Issues = "https://github.com/alex180500/online-qml/issues"
+Changelog = "https://github.com/alex180500/online-qml/releases"
+
+[build-system]
+requires = ["uv_build>=0.9.0,<0.12.0"]
+build-backend = "uv_build"

@@ -1,0 +1,58 @@
+name: "Release"
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag to publish"
+        required: true
+        type: string
+
+jobs:
+  publish:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+    permissions:
+      actions: write
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Check if version already exists on PyPI
+        id: pypi_check
+        shell: bash
+        run: |
+          version="$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)"
+          package_name="$(grep -m1 '^name = ' pyproject.toml | cut -d'"' -f2)"
+          url="https://pypi.org/pypi/${package_name}/${version}/json"
+
+          if python -c "import sys; from urllib.request import urlopen; url = sys.argv[1]; urlopen(url).close()" "$url"; then
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+            echo "Version ${version} is already published on PyPI."
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        if: steps.pypi_check.outputs.already_published != 'true'
+        run: uv build
+
+      - name: Publish
+        if: steps.pypi_check.outputs.already_published != 'true'
+        run: uv publish
+
