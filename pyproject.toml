@@ -30,3 +30,9 @@ Changelog = "https://github.com/alex180500/online-qml/releases"
 [build-system]
 requires = ["uv_build>=0.9.0,<0.12.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.2.0",
+    "matplotlib>=3.10.9",
+]
