@@ -8,5 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Testing files
 data/
 plots/
+test-scripts/
