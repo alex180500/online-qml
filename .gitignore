@@ -10,6 +10,4 @@ wheels/
 .venv
 
 # Testing files
-data/
-plots/
-test-scripts/
+my-tests/
