@@ -7,9 +7,9 @@ The distribution name is `online-qml`; the import name is `online_qml`.
 ## Current focus
 
 - generate Haar pure states and random Naimark POVMs;
-- train OST/A-OST/prior-frame readout layers;
+- train OST and prior-frame readout layers;
 - train dense pseudoinverse/ridge baselines;
-- evaluate Haar bias, variance and exact-probability MSE;
+- evaluate Haar bias and variance;
 - study state-frame and measurement-frame distances.
 
 ## Minimal example
@@ -24,8 +24,14 @@ povm = sample_povm(16, d=2, dtype=torch.cdouble)
 outcomes = shots_outcome(povm, states, shots=1)
 obs = sample_dm(1, d=2, dtype=torch.cdouble).T
 
-est = ShadowReadoutEstimator(n_out=16, d=2, dtype=torch.float64)
+est = ShadowReadoutEstimator(
+    n_out=16,
+    d=2,
+    dtype=torch.float64,
+    methods=("ost", "state_prior_ost"),
+)
 est.update_single_shot(outcomes[:, 0], states)
-W_ost = est.layer(obs)
-W_aost = est.layer(obs, adaptive_state=True)
+layers = est.layers(obs)
+W_ost = layers["ost"]
+W_state_prior = layers["state_prior_ost"]
 ```

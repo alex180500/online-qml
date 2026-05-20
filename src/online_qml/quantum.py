@@ -1,12 +1,7 @@
-from __future__ import annotations
-
 from math import sqrt
-
 import torch
 
-# =====================================
-# STATES AND OBSERVABLES
-# =====================================
+# ----- STATES AND OBSERVABLES -----
 
 
 def sample_states(
@@ -36,7 +31,7 @@ def sample_dm(
     device: torch.device | str = "cpu",
     dtype: torch.dtype = torch.cfloat,
 ) -> torch.Tensor:
-    """Sample flattened pure-state density matrices.
+    """Sample flattened Haar-random pure-state density matrices.
 
     Args:
         n_states (int): Number of density matrices.
@@ -49,6 +44,36 @@ def sample_dm(
     """
     states = sample_states(n_states, d=d, device=device, dtype=dtype)
     density = states.unsqueeze(1) * states.conj().unsqueeze(0)
+    return density.reshape(d * d, n_states)
+
+
+def sample_product_dm(
+    n_states: int,
+    n_sites: int,
+    local_dim: int = 2,
+    device: torch.device | str = "cpu",
+    dtype: torch.dtype = torch.cfloat,
+) -> torch.Tensor:
+    """Sample flattened product-Haar pure-state density matrices.
+
+    Args:
+        n_states (int): Number of density matrices.
+        n_sites (int): Number of tensor-product sites.
+        local_dim (int): Local Hilbert-space dimension.
+        device (torch.device | str): Output device.
+        dtype (torch.dtype): Complex output dtype.
+
+    Returns:
+        torch.Tensor: Flattened density matrices with shape (local_dim^(2 n_sites), n_states).
+    """
+    state = torch.ones(1, n_states, device=device, dtype=dtype)
+    for _ in range(n_sites):
+        local = sample_states(n_states, d=local_dim, device=device, dtype=dtype)
+        state = torch.einsum("an,bn->abn", state, local).reshape(
+            state.shape[0] * local_dim, n_states
+        )
+    d = local_dim**n_sites
+    density = state.unsqueeze(1) * state.conj().unsqueeze(0)
     return density.reshape(d * d, n_states)
 
 
@@ -82,6 +107,27 @@ def sample_traceless_operator(
     return h.reshape(n_operators, d * d).T
 
 
+def as_observable_matrix(observable: torch.Tensor, d2: int) -> torch.Tensor:
+    """Convert observables to row format.
+
+    Args:
+        observable (torch.Tensor): Observable with shape (d^2,), (n_obs, d^2), or (d^2, n_obs).
+        d2 (int): Squared Hilbert-space dimension.
+
+    Returns:
+        torch.Tensor: Observable matrix with shape (n_obs, d^2).
+    """
+    if observable.ndim == 1:
+        return observable.reshape(1, d2)
+    if observable.ndim == 2 and observable.shape[0] == d2 and observable.shape[1] != d2:
+        return observable.T
+    if observable.ndim == 2 and observable.shape[1] == d2:
+        return observable
+    raise ValueError(
+        f"observable must have shape (d^2,), (n_obs, d^2), or (d^2, n_obs); got {tuple(observable.shape)}."
+    )
+
+
 def get_observables(obs_matrix: torch.Tensor, states: torch.Tensor) -> torch.Tensor:
     """Compute observable expectation values.
 
@@ -95,9 +141,7 @@ def get_observables(obs_matrix: torch.Tensor, states: torch.Tensor) -> torch.Ten
     return torch.matmul(obs_matrix.conj(), states).real
 
 
-# =====================================
-# POVMS AND STATISTICS
-# =====================================
+# ----- POVMS AND STATISTICS -----
 
 
 def sample_unitary(
@@ -139,6 +183,8 @@ def sample_povm(
     Returns:
         torch.Tensor: Flattened POVM elements with shape (n_outcomes, d^2).
     """
+    if n_outcomes < d:
+        raise ValueError("n_outcomes must be at least d.")
     unitary = sample_unitary(n_outcomes, device=device, dtype=dtype)
     v = unitary[:, :d]
     ket = v.conj().unsqueeze(2)
@@ -160,30 +206,6 @@ def infinite_stats(povm: torch.Tensor, states: torch.Tensor) -> torch.Tensor:
     return torch.matmul(povm.conj(), states).real
 
 
-def finite_stats(
-    povm: torch.Tensor,
-    states: torch.Tensor,
-    shots: int | None,
-) -> torch.Tensor:
-    """Compute finite-shot empirical probabilities.
-
-    Args:
-        povm (torch.Tensor): Flattened POVM elements with shape (n_out, d^2).
-        states (torch.Tensor): Flattened density matrices with shape (d^2, n_states).
-        shots (int | None): Number of shots, or None for exact probabilities.
-
-    Returns:
-        torch.Tensor: Probability matrix with shape (n_out, n_states).
-    """
-    if shots is None:
-        return infinite_stats(povm, states)
-    probs_t = infinite_stats(povm, states).T
-    probs_t = torch.clamp(probs_t, min=0.0)
-    probs_t = probs_t / probs_t.sum(dim=1, keepdim=True)
-    multinomial = torch.distributions.Multinomial(total_count=shots, probs=probs_t)
-    return multinomial.sample().T / shots
-
-
 def shots_outcome(povm: torch.Tensor, states: torch.Tensor, shots: int) -> torch.Tensor:
     """Sample POVM outcomes for each state.
 
@@ -202,7 +224,7 @@ def shots_outcome(povm: torch.Tensor, states: torch.Tensor, shots: int) -> torch
 
 
 def shots_to_statistics(outcomes: torch.Tensor, n_out: int) -> torch.Tensor:
-    """Convert outcome shots to probabilities.
+    """Convert outcome shots to empirical probabilities.
 
     Args:
         outcomes (torch.Tensor): Outcome matrix with shape (n_states, n_shots).
@@ -211,6 +233,8 @@ def shots_to_statistics(outcomes: torch.Tensor, n_out: int) -> torch.Tensor:
     Returns:
         torch.Tensor: Probability matrix with shape (n_out, n_states).
     """
+    if outcomes.ndim == 1:
+        outcomes = outcomes.reshape(-1, 1)
     n_states, n_shots = outcomes.shape
     increments = torch.arange(n_states, device=outcomes.device).unsqueeze(1) * n_out
     linear_indices = (outcomes.to(torch.long) + increments).flatten()
@@ -218,9 +242,7 @@ def shots_to_statistics(outcomes: torch.Tensor, n_out: int) -> torch.Tensor:
     return counts.view(n_states, n_out).to(torch.float32).T / n_shots
 
 
-# =====================================
-# FRAMES
-# =====================================
+# ----- FRAMES -----
 
 
 def vec_identity(
@@ -263,7 +285,7 @@ def haar_state_frame(
     device: torch.device | str = "cpu",
     dtype: torch.dtype = torch.cfloat,
 ) -> torch.Tensor:
-    """Return the analytic Haar state frame.
+    """Return the analytic global-Haar state frame.
 
     Args:
         d (int): Hilbert-space dimension.
@@ -276,6 +298,54 @@ def haar_state_frame(
     d2 = d * d
     eye = torch.eye(d2, device=device, dtype=dtype)
     return (trace_superoperator(d, device=device, dtype=dtype) + eye) / (d * (d + 1))
+
+
+def _local_to_global_inverse_permutation(
+    n_sites: int,
+    local_dim: int,
+    device: torch.device | str = "cpu",
+) -> torch.Tensor:
+    size = local_dim ** (2 * n_sites)
+    perm = torch.empty(size, device=device, dtype=torch.long)
+    for local_idx in range(size):
+        x = local_idx
+        digits = [0] * (2 * n_sites)
+        for pos in range(2 * n_sites - 1, -1, -1):
+            digits[pos] = x % local_dim
+            x //= local_dim
+        global_digits = digits[0::2] + digits[1::2]
+        global_idx = 0
+        for digit in global_digits:
+            global_idx = global_idx * local_dim + digit
+        perm[local_idx] = global_idx
+    inv = torch.empty_like(perm)
+    inv[perm] = torch.arange(size, device=device, dtype=torch.long)
+    return inv
+
+
+def product_haar_state_frame(
+    n_sites: int,
+    local_dim: int = 2,
+    device: torch.device | str = "cpu",
+    dtype: torch.dtype = torch.cfloat,
+) -> torch.Tensor:
+    """Return the product-Haar state frame.
+
+    Args:
+        n_sites (int): Number of tensor-product sites.
+        local_dim (int): Local Hilbert-space dimension.
+        device (torch.device | str): Output device.
+        dtype (torch.dtype): Complex output dtype.
+
+    Returns:
+        torch.Tensor: Product state frame with shape (local_dim^(2 n_sites), local_dim^(2 n_sites)).
+    """
+    local = haar_state_frame(local_dim, device=device, dtype=dtype)
+    frame = local
+    for _ in range(n_sites - 1):
+        frame = torch.kron(frame, local)
+    inv_perm = _local_to_global_inverse_permutation(n_sites, local_dim, device=device)
+    return frame.index_select(0, inv_perm).index_select(1, inv_perm)
 
 
 def naimark_measurement_frame_prior(
@@ -343,14 +413,16 @@ def frame_relative_spectrum(
     Returns:
         torch.Tensor: Relative eigenvalues with shape (rank,).
     """
-    evals, evecs = torch.linalg.eigh(0.5 * (reference + reference.adjoint()))
+    ref = 0.5 * (reference + reference.adjoint())
+    emp = 0.5 * (empirical + empirical.adjoint())
+    evals, evecs = torch.linalg.eigh(ref)
     keep = evals > rcond * evals.max()
     if not torch.any(keep):
         raise ValueError("reference frame has no eigenvalues above cutoff.")
     inv_sqrt = (evecs[:, keep] / torch.sqrt(evals[keep]).unsqueeze(0)) @ evecs[
         :, keep
     ].adjoint()
-    whitened = inv_sqrt @ empirical @ inv_sqrt
+    whitened = inv_sqrt @ emp @ inv_sqrt
     whitened = 0.5 * (whitened + whitened.adjoint())
     return torch.linalg.eigvalsh(whitened).real
 
@@ -381,45 +453,6 @@ def frame_distance_summary(
         "lambda_max": lambda_max,
         "condition": lambda_max / lambda_min,
     }
-
-
-# =====================================
-# TESTING HELPERS
-# =====================================
-
-
-def get_test_input(
-    test_n_or_states: int | torch.Tensor,
-    povm: torch.Tensor,
-    observables: torch.Tensor,
-    stat: int | None = None,
-    d: int = 2,
-    device: torch.device | str = "cpu",
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Generate test probabilities and observable values.
-
-    Args:
-        test_n_or_states (int | torch.Tensor): Number of states or states with shape (d^2, n_test).
-        povm (torch.Tensor): Flattened POVM elements with shape (n_out, d^2).
-        observables (torch.Tensor): Observables with shape (n_obs, d^2).
-        stat (int | None): Test shots, or None for exact probabilities.
-        d (int): Hilbert-space dimension.
-        device (torch.device | str): Output device.
-
-    Returns:
-        tuple[torch.Tensor, torch.Tensor]: Probabilities (n_out, n_test) and observables (n_obs, n_test).
-    """
-    dtype = povm.dtype
-    if isinstance(test_n_or_states, int):
-        states = sample_dm(test_n_or_states, d=d, device=device, dtype=dtype)
-    else:
-        states = test_n_or_states.to(device=device, dtype=dtype)
-    if stat is None:
-        probs = infinite_stats(povm, states)
-    else:
-        outcomes = shots_outcome(povm, states, stat)
-        probs = shots_to_statistics(outcomes, povm.shape[0])
-    return probs, get_observables(observables, states)
 
 
 def get_test_mse(
