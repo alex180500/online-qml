@@ -1,15 +1,9 @@
-from __future__ import annotations
-
 from math import sqrt
-from typing import Iterable
-
 import torch
 
-from .quantum import get_test_mse, infinite_stats, sample_dm
+from .quantum import as_observable_matrix, get_observables, infinite_stats, sample_dm
 
-# =====================================
-# HAAR BIAS AND VARIANCE
-# =====================================
+# ----- HAAR BIAS AND VARIANCE -----
 
 
 class HaarBiasVariance:
@@ -22,9 +16,9 @@ class HaarBiasVariance:
 
     def __init__(self, povm: torch.Tensor, observable: torch.Tensor):
         self.povm = povm
-        if observable.ndim == 1:
-            observable = observable.reshape(1, -1)
-        self.observable = observable
+        self.observable = as_observable_matrix(observable, povm.shape[1]).to(
+            device=povm.device, dtype=povm.dtype
+        )
         if self.observable.shape[0] != 1:
             raise ValueError(
                 "HaarBiasVariance currently supports one observable with shape (1, d^2)."
@@ -52,13 +46,13 @@ class HaarBiasVariance:
         self.bias_const = self.coeff * (tr_obs * tr_obs + torch.trace(obs @ obs)).real
 
     def evaluate(self, layer: torch.Tensor) -> dict[str, torch.Tensor]:
-        """Evaluate a readout layer.
+        """Evaluate one readout layer.
 
         Args:
             layer (torch.Tensor): Readout layer with shape (1, n_out).
 
         Returns:
-            dict[str, torch.Tensor]: variance, bias2 and mse_exact_probs scalars.
+            dict[str, torch.Tensor]: variance and bias2 scalars.
         """
         e = layer.reshape(-1)
         shared = self.coeff * torch.einsum("a,ab,b->", e, self.pair_term, e)
@@ -67,25 +61,10 @@ class HaarBiasVariance:
         return {
             "variance": variance.real,
             "bias2": bias2.real,
-            "mse_exact_probs": bias2.real,
         }
 
-    def evaluate_tuple(self, layer: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Evaluate a readout layer with the old tuple convention.
 
-        Args:
-            layer (torch.Tensor): Readout layer with shape (1, n_out).
-
-        Returns:
-            tuple[torch.Tensor, torch.Tensor]: variance and bias2 scalars.
-        """
-        res = self.evaluate(layer)
-        return res["variance"], res["bias2"]
-
-
-# =====================================
-# LAYER EVALUATION
-# =====================================
+# ----- LAYER EVALUATION -----
 
 
 def evaluate_layers_haar(
@@ -115,7 +94,6 @@ def evaluate_layers_haar(
             vals: dict[str, list[torch.Tensor]] = {
                 "variance": [],
                 "bias2": [],
-                "mse_exact_probs": [],
             }
             for item in flat:
                 metrics = evaluator.evaluate(item)
@@ -126,42 +104,7 @@ def evaluate_layers_haar(
     return out
 
 
-def evaluate_layers_empirical_mse(
-    layers: dict[str, torch.Tensor],
-    povm: torch.Tensor,
-    observable: torch.Tensor,
-    test_states: int | torch.Tensor = 10000,
-    d: int | None = None,
-) -> dict[str, torch.Tensor]:
-    """Evaluate layers by empirical exact-probability test MSE.
-
-    Args:
-        layers (dict[str, torch.Tensor]): Layers with shape (n_obs, n_out).
-        povm (torch.Tensor): Flattened POVM elements with shape (n_out, d^2).
-        observable (torch.Tensor): Observables with shape (n_obs, d^2).
-        test_states (int | torch.Tensor): Number of test states or states with shape (d^2, n_test).
-        d (int | None): Hilbert-space dimension.
-
-    Returns:
-        dict[str, torch.Tensor]: MSE scalars keyed as method_mse_test.
-    """
-    if d is None:
-        d = int(round(povm.shape[1] ** 0.5))
-    if isinstance(test_states, int):
-        states = sample_dm(test_states, d=d, device=povm.device, dtype=povm.dtype)
-    else:
-        states = test_states.to(device=povm.device, dtype=povm.dtype)
-    probs = infinite_stats(povm, states)
-    obs_vals = torch.matmul(observable.to(povm.dtype).conj(), states).real
-    return {
-        f"{method}_mse_test": get_test_mse(layer, obs_vals, probs)
-        for method, layer in layers.items()
-    }
-
-
-# =====================================
-# BETA FITS
-# =====================================
+# ----- BETA FITS -----
 
 
 def fit_beta_coefficients(
@@ -209,16 +152,14 @@ def fit_beta_coefficients(
     }
 
 
-# =====================================
-# PREDICTION GEOMETRY
-# =====================================
+# ----- PREDICTION GEOMETRY -----
 
 
 def prediction_geometry(
     layer: torch.Tensor,
     povm: torch.Tensor,
     observable: torch.Tensor,
-    states: torch.Tensor,
+    states: int | torch.Tensor = 10000,
 ) -> dict[str, torch.Tensor]:
     """Compute true-vs-predicted calibration diagnostics.
 
@@ -226,15 +167,21 @@ def prediction_geometry(
         layer (torch.Tensor): Readout layer with shape (1, n_out).
         povm (torch.Tensor): Flattened POVM elements with shape (n_out, d^2).
         observable (torch.Tensor): Observable with shape (1, d^2) or (d^2,).
-        states (torch.Tensor): Flattened density matrices with shape (d^2, n_states).
+        states (int | torch.Tensor): Number of Haar test states or states with shape (d^2, n_states).
 
     Returns:
         dict[str, torch.Tensor]: True values, predictions, slope, intercept, Pearson r and MSE.
     """
-    if observable.ndim == 1:
-        observable = observable.reshape(1, -1)
+    d = int(round(povm.shape[1] ** 0.5))
+    obs = as_observable_matrix(observable, povm.shape[1]).to(
+        device=povm.device, dtype=povm.dtype
+    )
+    if isinstance(states, int):
+        states = sample_dm(states, d=d, device=povm.device, dtype=povm.dtype)
+    else:
+        states = states.to(device=povm.device, dtype=povm.dtype)
     probs = infinite_stats(povm, states)
-    true = torch.matmul(observable.to(states.dtype).conj(), states).real.reshape(-1)
+    true = get_observables(obs, states).reshape(-1)
     pred = torch.matmul(layer, probs).real.reshape(-1)
     x = true - true.mean()
     y = pred - pred.mean()
