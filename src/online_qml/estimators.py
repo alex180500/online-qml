@@ -1,28 +1,16 @@
-from __future__ import annotations
-
-from math import sqrt
 from typing import Iterable
-
 import torch
 
-from .core import get_complex_dtype
-from .quantum import get_observables
+from .core.internals import complex_dtype
+from .core.methods import shadow_method_flags
+from .quantum import (
+    as_observable_matrix,
+    get_observables,
+    shots_to_statistics,
+    vec_identity,
+)
 
-# =====================================
-# HELPERS
-# =====================================
-
-
-def _as_observable_matrix(observable: torch.Tensor, d2: int) -> torch.Tensor:
-    if observable.ndim == 1:
-        return observable.reshape(1, d2)
-    if observable.ndim == 2 and observable.shape[0] == d2 and observable.shape[1] != d2:
-        return observable.T
-    if observable.ndim == 2 and observable.shape[1] == d2:
-        return observable
-    raise ValueError(
-        f"observable must have shape (d^2,), (n_obs, d^2), or (d^2, n_obs); got {tuple(observable.shape)}."
-    )
+# ----- HELPERS -----
 
 
 def pinv_truncated(matrix: torch.Tensor, rank: int) -> torch.Tensor:
@@ -43,36 +31,7 @@ def pinv_truncated(matrix: torch.Tensor, rank: int) -> torch.Tensor:
     return (vk / sk.unsqueeze(0)) @ uk.T
 
 
-def method_flags(method: str) -> tuple[bool, bool]:
-    """Return adaptive_state and prior_frame flags for an OST method name.
-
-    Args:
-        method (str): Method name: ost, aost, prior_ost, or prior_aost.
-
-    Returns:
-        tuple[bool, bool]: adaptive_state and prior_frame flags.
-    """
-    aliases = {
-        "si_fe": "ost",
-        "se_fe": "aost",
-        "si_fi": "prior_ost",
-        "se_fi": "prior_aost",
-    }
-    method = aliases.get(method.lower(), method.lower())
-    if method == "ost":
-        return False, False
-    if method == "aost":
-        return True, False
-    if method == "prior_ost":
-        return False, True
-    if method == "prior_aost":
-        return True, True
-    raise ValueError(f"Unknown shadow method '{method}'.")
-
-
-# =====================================
-# SHADOW READOUT ESTIMATOR
-# =====================================
+# ----- SHADOW READOUT ESTIMATOR -----
 
 
 class ShadowReadoutEstimator:
@@ -81,27 +40,48 @@ class ShadowReadoutEstimator:
     Args:
         n_out (int): Number of POVM outcomes.
         d (int): Hilbert-space dimension.
-        accumulate_state_frame (bool): Whether to accumulate empirical S with shape (d^2, d^2).
+        state_prior_frame (torch.Tensor | None): Optional prior state frame with shape (d^2, d^2).
+        accumulate_state_frame (bool | None): Whether to accumulate empirical F_rho with shape (d^2, d^2). If None, infer from methods.
         device (torch.device | str): Accumulator device.
         dtype (torch.dtype): Real accumulator dtype.
+        methods (Iterable[str]): Shadow methods to compute.
     """
 
     def __init__(
         self,
         n_out: int,
         d: int,
-        accumulate_state_frame: bool = True,
+        state_prior_frame: torch.Tensor | None = None,
+        accumulate_state_frame: bool | None = None,
         device: torch.device | str = "cpu",
         dtype: torch.dtype = torch.float64,
+        *,
+        methods: Iterable[str],
     ):
         self.n_out = n_out
         self.d = d
         self.d2 = d * d
         self.dtype = dtype
-        self.cdtype = get_complex_dtype(dtype)
+        self.cdtype = complex_dtype(dtype)
         self.device = torch.device(device)
+        self.methods = tuple(methods)
+        self._method_flags = {
+            method: shadow_method_flags(method) for method in self.methods
+        }
+        if accumulate_state_frame is None:
+            accumulate_state_frame = any(
+                not use_state_prior
+                for use_state_prior, _ in self._method_flags.values()
+            )
         self.accumulate_state_frame = accumulate_state_frame
-        self.vec_i = torch.eye(d, device=self.device, dtype=self.cdtype).reshape(1, -1)
+        self.vec_i = vec_identity(d, device=self.device, dtype=self.cdtype).reshape(
+            1, -1
+        )
+        self.state_prior_frame = None
+        if state_prior_frame is not None:
+            self.state_prior_frame = state_prior_frame.to(
+                device=self.device, dtype=self.cdtype
+            )
         self.reset()
 
     def reset(self) -> None:
@@ -118,9 +98,18 @@ class ShadowReadoutEstimator:
             self.n_out, device=self.device, dtype=self.dtype
         )
         if self.accumulate_state_frame:
-            self.S_acc = torch.zeros(
+            self.state_frame_acc = torch.zeros(
                 (self.d2, self.d2), device=self.device, dtype=self.cdtype
             )
+
+    def update(self, outcomes: torch.Tensor, states: torch.Tensor) -> None:
+        """Update from raw outcomes.
+
+        Args:
+            outcomes (torch.Tensor): Outcome vector (n_batch,) or matrix (n_batch, n_shots).
+            states (torch.Tensor): Flattened density matrices with shape (d^2, n_batch).
+        """
+        self.update_outcomes(outcomes, states)
 
     def update_probs(self, probs: torch.Tensor, states: torch.Tensor) -> None:
         """Update from dense probabilities.
@@ -141,7 +130,7 @@ class ShadowReadoutEstimator:
         self.raw_mu_acc.addmm_(p.to(dtype=self.cdtype), rho.T)
         self.prob_sum_acc += p.sum(dim=1)
         if self.accumulate_state_frame:
-            self.S_acc.addmm_(rho, rho.adjoint())
+            self.state_frame_acc.addmm_(rho, rho.adjoint())
 
     def update_single_shot(self, outcomes: torch.Tensor, states: torch.Tensor) -> None:
         """Update from one outcome per state.
@@ -161,7 +150,7 @@ class ShadowReadoutEstimator:
         ones = torch.ones(idx.numel(), device=self.device, dtype=self.dtype)
         self.prob_sum_acc.index_add_(0, idx, ones)
         if self.accumulate_state_frame:
-            self.S_acc.addmm_(rho_cols, rho_cols.adjoint())
+            self.state_frame_acc.addmm_(rho_cols, rho_cols.adjoint())
         self.total_samples += idx.numel()
 
     def update_outcomes(self, outcomes: torch.Tensor, states: torch.Tensor) -> None:
@@ -191,59 +180,57 @@ class ShadowReadoutEstimator:
         )
         self.prob_sum_acc.index_add_(0, idx, weights)
         if self.accumulate_state_frame:
-            self.S_acc.addmm_(rho_cols, rho_cols.adjoint())
+            self.state_frame_acc.addmm_(rho_cols, rho_cols.adjoint())
         self.total_samples += n_batch
 
     def estimated_povm(
-        self, adaptive_state: bool = False, rcond: float = 1e-10
-    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        self, use_state_prior: bool = False, rcond: float = 1e-10
+    ) -> torch.Tensor:
         """Compute the estimated POVM after state-frame inversion.
 
         Args:
-            adaptive_state (bool): If True, use empirical S^+; otherwise use analytic Haar S^{-1}.
-            rcond (float): Pseudoinverse cutoff for empirical S.
+            use_state_prior (bool): If True, use the state-frame prior. If False, use empirical F_rho^+.
+            rcond (float): Pseudoinverse cutoff for empirical or explicit prior frames.
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor | None]: POVM (n_out, d^2) and traces (n_out, 1) or None.
+            torch.Tensor: Estimated POVM with shape (n_out, d^2).
         """
         if self.total_samples == 0:
             raise RuntimeError("No samples have been accumulated.")
-        averaged_raw_mu = self.raw_mu_acc / self.total_samples
-        if adaptive_state:
-            if not self.accumulate_state_frame:
-                raise RuntimeError(
-                    "adaptive_state=True requires accumulate_state_frame=True."
-                )
-            s_inv = torch.linalg.pinv(self.S_acc / self.total_samples, rcond=rcond)
-            return torch.matmul(averaged_raw_mu, s_inv.T), None
-        avg_probs = (
-            (self.prob_sum_acc / self.total_samples).view(-1, 1).to(dtype=self.cdtype)
-        )
-        est_povm = self.d * (self.d + 1) * averaged_raw_mu
-        est_povm = est_povm + (-self.d) * torch.matmul(avg_probs, self.vec_i)
-        return est_povm, (self.d * avg_probs).to(dtype=self.cdtype)
+        raw_mean = self.raw_mu_acc / self.total_samples
+        if use_state_prior:
+            if self.state_prior_frame is not None:
+                prior_inv = torch.linalg.pinv(self.state_prior_frame, rcond=rcond)
+                return torch.matmul(raw_mean, prior_inv.T)
+            prob_mean = (self.prob_sum_acc / self.total_samples).view(-1, 1)
+            prob_mean = prob_mean.to(dtype=self.cdtype)
+            return self.d * (self.d + 1) * raw_mean - self.d * torch.matmul(
+                prob_mean, self.vec_i
+            )
+        if not self.accumulate_state_frame:
+            raise RuntimeError("Empirical state-frame inversion was not accumulated.")
+        frame = self.state_frame_acc / self.total_samples
+        frame_inv = torch.linalg.pinv(frame, rcond=rcond)
+        return torch.matmul(raw_mean, frame_inv.T)
 
     def dual_frame(
         self,
         estimated_povm: torch.Tensor,
-        prior_frame: bool = False,
-        traces: torch.Tensor | None = None,
+        use_povm_prior: bool = False,
         rcond: float = 1e-10,
     ) -> torch.Tensor:
         """Compute the measurement dual frame.
 
         Args:
             estimated_povm (torch.Tensor): Estimated POVM with shape (n_out, d^2).
-            prior_frame (bool): If True, use analytic Naimark prior; otherwise use empirical F^+.
-            traces (torch.Tensor | None): POVM traces with shape (n_out, 1), or None.
-            rcond (float): Pseudoinverse cutoff for empirical F.
+            use_povm_prior (bool): If True, use the analytic Naimark prior. If False, use empirical F_mu^+.
+            rcond (float): Pseudoinverse cutoff for empirical F_mu.
 
         Returns:
             torch.Tensor: Dual frame with shape (d^2, n_out).
         """
-        if prior_frame:
-            if traces is None:
-                traces = torch.sum(estimated_povm * self.vec_i, dim=1, keepdim=True)
+        if use_povm_prior:
+            traces = torch.sum(estimated_povm * self.vec_i, dim=1, keepdim=True)
             dual_t = (self.n_out + 1) * estimated_povm
             dual_t = dual_t - ((self.n_out + 1) / (self.d + 1)) * torch.matmul(
                 traces, self.vec_i
@@ -258,38 +245,34 @@ class ShadowReadoutEstimator:
     def layer(
         self,
         observable: torch.Tensor,
-        adaptive_state: bool = False,
-        prior_frame: bool = False,
+        use_state_prior: bool = False,
+        use_povm_prior: bool = False,
         rcond_state: float = 1e-10,
         rcond_frame: float = 1e-10,
     ) -> torch.Tensor:
-        """Compute a readout layer.
+        """Compute one readout layer.
 
         Args:
             observable (torch.Tensor): Observables with shape (n_obs, d^2), (d^2, n_obs), or (d^2,).
-            adaptive_state (bool): If True, use empirical S^+.
-            prior_frame (bool): If True, use analytic measurement-frame prior.
-            rcond_state (float): Pseudoinverse cutoff for empirical S.
-            rcond_frame (float): Pseudoinverse cutoff for empirical F.
+            use_state_prior (bool): If True, use prior F_rho.
+            use_povm_prior (bool): If True, use prior F_mu.
+            rcond_state (float): Pseudoinverse cutoff for F_rho.
+            rcond_frame (float): Pseudoinverse cutoff for F_mu.
 
         Returns:
             torch.Tensor: Readout layer with shape (n_obs, n_out).
         """
-        obs = _as_observable_matrix(observable, self.d2).to(
+        obs = as_observable_matrix(observable, self.d2).to(
             device=self.device, dtype=self.cdtype
         )
-        povm, traces = self.estimated_povm(
-            adaptive_state=adaptive_state, rcond=rcond_state
-        )
-        dual = self.dual_frame(
-            povm, prior_frame=prior_frame, traces=traces, rcond=rcond_frame
-        )
+        povm = self.estimated_povm(use_state_prior=use_state_prior, rcond=rcond_state)
+        dual = self.dual_frame(povm, use_povm_prior=use_povm_prior, rcond=rcond_frame)
         return torch.matmul(obs.conj(), dual).real.to(dtype=self.dtype)
 
     def layers(
         self,
         observable: torch.Tensor,
-        methods: Iterable[str] = ("ost", "aost", "prior_ost", "prior_aost"),
+        methods: Iterable[str] | None = None,
         rcond_state: float = 1e-10,
         rcond_frame: float = 1e-10,
     ) -> dict[str, torch.Tensor]:
@@ -297,29 +280,41 @@ class ShadowReadoutEstimator:
 
         Args:
             observable (torch.Tensor): Observables with shape (n_obs, d^2), (d^2, n_obs), or (d^2,).
-            methods (Iterable[str]): Method names.
-            rcond_state (float): Pseudoinverse cutoff for empirical S.
-            rcond_frame (float): Pseudoinverse cutoff for empirical F.
+            methods (Iterable[str] | None): Shadow method names. If None, use the methods configured on the estimator.
+            rcond_state (float): Pseudoinverse cutoff for F_rho.
+            rcond_frame (float): Pseudoinverse cutoff for F_mu.
 
         Returns:
             dict[str, torch.Tensor]: Layers with shape (n_obs, n_out).
         """
+        selected_methods = self.methods if methods is None else tuple(methods)
+        selected_flags: dict[str, tuple[bool, bool]] = {}
+        for method in selected_methods:
+            if method in self._method_flags:
+                selected_flags[method] = self._method_flags[method]
+            else:
+                selected_flags[method] = shadow_method_flags(method)
+
+        obs = as_observable_matrix(observable, self.d2).to(
+            device=self.device, dtype=self.cdtype
+        )
+        povms: dict[bool, torch.Tensor] = {}
         out: dict[str, torch.Tensor] = {}
-        for method in methods:
-            adaptive_state, prior_frame = method_flags(method)
-            out[method] = self.layer(
-                observable,
-                adaptive_state=adaptive_state,
-                prior_frame=prior_frame,
-                rcond_state=rcond_state,
-                rcond_frame=rcond_frame,
+        for method, (use_state_prior, use_povm_prior) in selected_flags.items():
+            if use_state_prior not in povms:
+                povms[use_state_prior] = self.estimated_povm(
+                    use_state_prior=use_state_prior, rcond=rcond_state
+                )
+            dual = self.dual_frame(
+                povms[use_state_prior],
+                use_povm_prior=use_povm_prior,
+                rcond=rcond_frame,
             )
+            out[method] = torch.matmul(obs.conj(), dual).real.to(dtype=self.dtype)
         return out
 
 
-# =====================================
-# LINEAR READOUT ESTIMATOR
-# =====================================
+# ----- LINEAR READOUT ESTIMATOR -----
 
 
 class LinearReadoutEstimator:
@@ -376,6 +371,30 @@ class LinearReadoutEstimator:
         self.G.addmm_(p, p.T)
         self.C.addmm_(y, p.T)
 
+    def update_outcomes(
+        self,
+        outcomes: torch.Tensor,
+        states: torch.Tensor,
+        observable: torch.Tensor,
+        n_out: int | None = None,
+    ) -> None:
+        """Update from raw outcomes through empirical probabilities.
+
+        Args:
+            outcomes (torch.Tensor): Outcome matrix with shape (n_batch, n_shots).
+            states (torch.Tensor): Flattened density matrices with shape (d^2, n_batch).
+            observable (torch.Tensor): Observables with shape (n_obs, d^2).
+            n_out (int | None): Number of POVM outcomes.
+        """
+        if n_out is None:
+            n_out = self.n_out
+        probs = shots_to_statistics(outcomes, n_out).to(
+            device=self.device, dtype=self.dtype
+        )
+        obs = as_observable_matrix(observable, states.shape[0])
+        targets = get_observables(obs, states).to(device=self.device, dtype=self.dtype)
+        self.update_probs(probs, targets)
+
     def layer_pinv(self, tol: float | int = 1e-10) -> torch.Tensor:
         """Compute the Moore-Penrose pseudoinverse readout layer.
 
@@ -408,9 +427,7 @@ class LinearReadoutEstimator:
         )
 
 
-# =====================================
-# RUNNING OUTCOME STATISTICS
-# =====================================
+# ----- RUNNING OUTCOME STATISTICS -----
 
 
 class RunningOutcomeStats:
@@ -434,9 +451,9 @@ class RunningOutcomeStats:
         self.n_states = n_states
         self.device = torch.device(device)
         self.dtype = dtype
-        self.increments = (
-            torch.arange(n_states, device=self.device) * n_out
-        ).unsqueeze(1)
+        self.increments = (torch.arange(n_states, device=self.device) * n_out).view(
+            -1, 1
+        )
         self.reset()
 
     def reset(self) -> None:
@@ -466,20 +483,11 @@ class RunningOutcomeStats:
         if n_new == 0:
             return
         linear_indices = (
-            outcomes_chunk.to(device=self.device, dtype=torch.long)
-            + self.increments[:, :n_new]
+            outcomes_chunk.to(device=self.device, dtype=torch.long) + self.increments
         ).flatten()
         counts = torch.bincount(linear_indices, minlength=self.n_states * self.n_out)
         self.count_acc += counts.view(self.n_states, self.n_out).T.to(dtype=self.dtype)
         self.total_shots += n_new
-
-    def counts(self) -> torch.Tensor:
-        """Return accumulated counts.
-
-        Returns:
-            torch.Tensor: Count matrix with shape (n_out, n_states).
-        """
-        return self.count_acc
 
     def probabilities(self) -> torch.Tensor:
         """Return accumulated probabilities.
@@ -490,34 +498,3 @@ class RunningOutcomeStats:
         if self.total_shots == 0:
             return self.count_acc
         return (self.count_acc / self.total_shots).contiguous()
-
-
-# =====================================
-# CONVENIENCE
-# =====================================
-
-
-def train_linear_from_probs(
-    probs: torch.Tensor,
-    observable: torch.Tensor,
-    states: torch.Tensor,
-    tol: float | int = 1e-10,
-) -> torch.Tensor:
-    """Train a dense pseudoinverse readout from probabilities.
-
-    Args:
-        probs (torch.Tensor): Probability matrix with shape (n_out, n_states).
-        observable (torch.Tensor): Observables with shape (n_obs, d^2).
-        states (torch.Tensor): Flattened density matrices with shape (d^2, n_states).
-        tol (float | int): Relative tolerance or truncation rank.
-
-    Returns:
-        torch.Tensor: Readout layer with shape (n_obs, n_out).
-    """
-    obs = _as_observable_matrix(observable, states.shape[0])
-    targets = get_observables(obs, states)
-    est = LinearReadoutEstimator(
-        probs.shape[0], obs.shape[0], device=probs.device, dtype=probs.dtype
-    )
-    est.update_probs(probs, targets)
-    return est.layer_pinv(tol=tol)
