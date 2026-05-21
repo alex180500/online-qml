@@ -58,5 +58,6 @@ def torch_setup(
         print(f"device: {device}")
         print(f"precision: {precision}")
         print(f"torch threads: {torch.get_num_threads()} / os cores: {os.cpu_count()}")
+        print(f"working folder: {os.getcwd()}")
 
     return device, rdtype, cdtype

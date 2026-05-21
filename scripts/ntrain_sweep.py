@@ -42,6 +42,7 @@ device, rdtype, cdtype = torch_setup(
     device=args.device,
     precision=args.precision,
     threads=args.torch_threads,
+    verbose=True,
 )
 
 out_dir = args.folder / f"shots_{args.shots}"
