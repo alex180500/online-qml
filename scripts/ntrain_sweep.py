@@ -68,8 +68,8 @@ metric_files: dict[int, Path] = {}
 
 for seed_id in range(args.nseeds):
     seed = run_metadata["seeds"][seed_id]
-    _, layer_path, metric_path = seed_run(out_dir, seed_id, seed)
-    metric_files[seed_id] = metric_path
+    seed_dir = seed_run(out_dir, seed_id, seed)
+    metric_files[seed_id] = seed_dir / "metrics.pt"
 
     data, sample_time = timed(
         sample_data,
@@ -94,10 +94,10 @@ for seed_id in range(args.nseeds):
         ridge_alpha=args.ridge_alpha,
         dtype=rdtype,
     )
-    save_pt(result, layer_path)
+    save_pt(result, seed_dir / "layers.pt")
 
     metrics, metric_time = timed(haar_metrics, result, data.povm)
-    save_pt(metrics, metric_path)
+    save_pt(metrics, seed_dir / "metrics.pt")
 
     print(
         f"[seed {seed_id} / {args.nseeds}] "

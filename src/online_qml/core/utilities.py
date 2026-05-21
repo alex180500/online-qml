@@ -11,12 +11,12 @@ from .internals import seed_all
 MAX_SEED = 2**32 - 1
 
 
-def seed_run(root: str | Path, seed_id: int, seed: int) -> tuple[Path, Path, Path]:
+def seed_run(root: str | Path, seed_id: int, seed: int) -> Path:
     """Prepare a per-seed run folder and seed Torch RNGs."""
     seed_dir = Path(root) / f"seed_{seed_id}"
     seed_dir.mkdir(parents=True, exist_ok=True)
     seed_all(seed)
-    return seed_dir, seed_dir / "layers.pt", seed_dir / "metrics.pt"
+    return seed_dir
 
 
 def random_seed() -> int:
