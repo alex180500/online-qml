@@ -6,9 +6,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--folder", type=Path, default=Path("my-tests/data/shot_sweep"))
 parser.add_argument("-d", "--dim", type=int, default=2)
 parser.add_argument("-o", "--n-out", type=int, default=16)
-parser.add_argument("-n", "--n-train", type=int, default=1000)
+parser.add_argument("-t", "--ntrain", type=int, default=1000)
+parser.add_argument("-s", "--shot-max", type=int, default=10_000)
 parser.add_argument("--shot-start", type=int, default=1)
-parser.add_argument("--shot-max", type=int, default=10_000)
 parser.add_argument("--shot-step", type=int, default=40)
 parser.add_argument("--nseeds", type=int, default=3)
 parser.add_argument(
@@ -31,14 +31,14 @@ device, rdtype, cdtype = torch_setup(
     verbose=True,
 )
 
-out_dir = args.folder / f"ntrain_{args.n_train}"
+out_dir = args.folder / f"ntrain_{args.ntrain}"
 out_dir.mkdir(parents=True, exist_ok=True)
 
 run_metadata = {
     "script": "shot_sweep.py",
     "dim": args.dim,
     "n_out": args.n_out,
-    "n_train": args.n_train,
+    "n_train": args.ntrain,
     "shot_start": args.shot_start,
     "shot_max": args.shot_max,
     "shot_step": args.shot_step,
@@ -59,7 +59,7 @@ for seed_id in range(args.nseeds):
 
     data, sample_time = timed(
         sample_data,
-        args.n_train,
+        args.ntrain,
         d=args.dim,
         n_out=args.n_out,
         shots=args.shot_max,
@@ -74,7 +74,7 @@ for seed_id in range(args.nseeds):
         data,
         observable,
         shot_grid=shot_grid,
-        n_train=args.n_train,
+        n_train=args.ntrain,
         methods=args.methods,
         pinv_tol=args.pinv_tol,
         ridge_alpha=args.ridge_alpha,
@@ -97,5 +97,5 @@ save_metrics(
     metric_names=("bias2", "variance"),
     grid_key="shot_grid",
     grid_column="shots",
-    fixed_columns={"n_train": args.n_train},
+    fixed_columns={"n_train": args.ntrain},
 )

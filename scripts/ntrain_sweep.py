@@ -1,27 +1,13 @@
 import argparse
 from pathlib import Path
-
-from online_qml import (
-    haar_metrics,
-    logspace_int,
-    ntrain_layers,
-    random_seed,
-    sample_data,
-    sample_dm,
-    save_json,
-    save_metrics,
-    save_pt,
-    seed_run,
-    timed,
-    torch_setup,
-)
+from online_qml import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--folder", type=Path, default=Path("my-tests/data/ntrain_sweep"))
 parser.add_argument("-d", "--dim", type=int, default=2)
 parser.add_argument("-o", "--n-out", type=int, default=16)
 parser.add_argument("-s", "--shots", type=int, default=1)
-parser.add_argument("-t", "--max-ntrain", type=int, default=50_000)
+parser.add_argument("-t", "--train-max", type=int, default=50_000)
 parser.add_argument("--train-start", type=int, default=1)
 parser.add_argument("--train-step", type=int, default=30)
 parser.add_argument("--nseeds", type=int, default=3)
@@ -53,7 +39,7 @@ run_metadata = {
     "dim": args.dim,
     "n_out": args.n_out,
     "shots": args.shots,
-    "max_ntrain": args.max_ntrain,
+    "train_max": args.train_max,
     "train_start": args.train_start,
     "train_step": args.train_step,
     "nseeds": args.nseeds,
@@ -63,7 +49,7 @@ run_metadata = {
 }
 save_json(run_metadata, out_dir / "metadata.json")
 
-train_grid = logspace_int(args.train_start, args.max_ntrain, args.train_step)
+train_grid = logspace_int(args.train_start, args.train_max, args.train_step)
 metric_files: dict[int, Path] = {}
 
 for seed_id in range(args.nseeds):
@@ -73,7 +59,7 @@ for seed_id in range(args.nseeds):
 
     data, sample_time = timed(
         sample_data,
-        args.max_ntrain,
+        args.train_max,
         d=args.dim,
         n_out=args.n_out,
         shots=args.shots,
