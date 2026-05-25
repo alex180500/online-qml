@@ -5,7 +5,7 @@ from online_qml import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--folder", type=Path, default=Path("my-tests/data/dim_sweep"))
-parser.add_argument("-f", "--folder-name", type=str, default="")
+parser.add_argument("-f", "--folder-name", type=str, default="d_cube")
 parser.add_argument("-d","--d-grid", nargs="+", type=int, default=[2, 3, 4])
 parser.add_argument("--n-out-rule", type=str, default="d**3")
 parser.add_argument("-t", "--ntrain", type=int, default=10_000)
