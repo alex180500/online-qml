@@ -18,6 +18,7 @@ from .core import (
     seed_run,
     timed,
     torch_setup,
+    training_methods,
 )
 from .estimators import (
     LinearReadoutEstimator,
@@ -72,10 +73,11 @@ except PackageNotFoundError:
 __all__ = [
     # Version.
     "__version__",
-    # Core containers.
+    # Core containers and methods.
     "SimulationData",
     "LayerResult",
     "MetricResult",
+    "training_methods",
     # Runtime, IO and small utilities.
     "torch_setup",
     "random_seed",

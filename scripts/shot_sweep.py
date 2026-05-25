@@ -11,11 +11,7 @@ parser.add_argument("-s", "--shot-max", type=int, default=10_000)
 parser.add_argument("--shot-start", type=int, default=1)
 parser.add_argument("--shot-step", type=int, default=40)
 parser.add_argument("--nseeds", type=int, default=3)
-parser.add_argument(
-    "--methods",
-    nargs="+",
-    default=["ost", "state_prior_ost", "povm_prior_ost", "prior_ost", "pinv", "ridge"],
-)
+parser.add_argument("--methods", nargs="+", default=training_methods)
 parser.add_argument("--pinv-tol", type=float, default=1e-10)
 parser.add_argument("--ridge-alpha", type=float, default=1e-4)
 parser.add_argument("--device", type=str, default="cpu")

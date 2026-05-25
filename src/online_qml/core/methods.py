@@ -8,6 +8,7 @@ _SHADOW_METHOD_FLAGS: dict[str, tuple[bool, bool]] = {
 }
 _LINEAR_METHODS = frozenset({"pinv", "ridge"})
 _ALL_METHODS = frozenset(_SHADOW_METHOD_FLAGS) | _LINEAR_METHODS
+training_methods = ["ost", "state_prior_ost", "povm_prior_ost", "prior_ost", "pinv", "ridge"]
 
 
 def shadow_method_flags(method: str) -> tuple[bool, bool]:
