@@ -24,11 +24,16 @@ def random_seed() -> int:
     return randint(0, MAX_SEED)
 
 
-def timed(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[Any, float]:
-    """Run a callable and return its result with elapsed wall time in seconds."""
+def timed(
+    fn: Callable[..., Any],
+    *args: Any,
+    previous_time: float = 0.0,
+    **kwargs: Any,
+) -> tuple[Any, float]:
+    """Run a callable and return its result with cumulative wall time in seconds."""
     start = time.perf_counter()
     result = fn(*args, **kwargs)
-    return result, time.perf_counter() - start
+    return result, previous_time + time.perf_counter() - start
 
 
 def logspace_int(start: int, stop: int, num: int) -> torch.Tensor:
