@@ -32,22 +32,17 @@ Use the new naming scheme everywhere.
 | pseudoinverse | `pinv` | none | none | standard probability-matrix baseline |
 | ridge | `ridge` | none | none | regularized probability-matrix baseline |
 
-Default method list for most scripts:
+Current library default for sweep scripts:
 
 ```python
-methods = (
+training_methods = [
     "ost",
     "state_prior_ost",
     "povm_prior_ost",
     "prior_ost",
     "pinv",
-)
-````
-
-Optional:
-
-```python
-methods += ("ridge",)
+    "ridge",
+]
 ```
 
 For main-text figures, ridge can be omitted unless it gives a useful comparison.
@@ -55,6 +50,55 @@ For main-text figures, ridge can be omitted unless it gives a useful comparison.
 ---
 
 # 2. Common script structure
+
+## Implementation rule for coding assistants
+
+When helping build or edit these scripts:
+
+```text
+Do not run the experiment scripts.
+Do not launch local debug runs.
+Do not execute full sweeps.
+Do not run plotting scripts unless explicitly asked.
+```
+
+The user will run the code on their own machine or HPC setup.
+Assistant work should focus on reading the existing code, editing scripts,
+keeping interfaces consistent, and doing static checks by inspection.
+
+Scripts should be thin wrappers around the library. Reuse existing helpers such as:
+
+```python
+torch_setup
+seed_run
+sample_data
+ntrain_layers
+shot_layers
+haar_metrics
+save_metrics
+save_json
+save_pt
+logspace_int
+training_methods
+```
+
+Do not duplicate library behavior inside scripts. In particular:
+
+```text
+do not create script-specific CSV writers when save_metrics works
+do not create complicated rule parsers for simple paper choices
+do not add extra seeding machinery unless it is scientifically needed
+do not add cache frameworks or validation frameworks yet
+```
+
+Prefer explicit paper choices in the script, for example:
+
+```python
+n_out = d**3
+n_train = 100_000
+```
+
+over parsing generic rules such as `"alpha*d**2"`.
 
 All experiment scripts should follow the same simple structure:
 
@@ -76,30 +120,24 @@ Each script should:
     
 2. call `torch_setup`;
     
-3. create an output folder under `./data`;
+3. create an output folder under the chosen data folder;
     
-4. create or load `metadata.json`;
+4. overwrite `metadata.json` with `save_json`;
     
 5. loop over indexed seeds `seed_0`, `seed_1`, ...;
     
-6. generate/load raw data;
+6. generate the simulation data;
     
-7. generate/load layers;
+7. generate layers through library helpers;
     
-8. evaluate/load metrics;
+8. evaluate metrics through library helpers;
     
-9. save one `metrics_long.csv`.
+9. save summary CSVs with `save_metrics`.
     
 
-Use simple file-exists caching:
-
-```text
-if raw file exists: reuse it
-if layer file exists: reuse it
-if metric file exists: reuse it
-```
-
-Do not add complicated validation yet. Metadata consistency can be checked manually or added later.
+For now, prefer recomputation over reuse. Add caching only after an explicit
+request. Do not add complicated validation yet. Metadata consistency can be
+checked manually or added later.
 
 ---
 
@@ -112,59 +150,102 @@ For example:
 ```text
 ./data/ntrain_sweep/shots_1/
   metadata.json
-  raw/
-    seed_0.pt
-    seed_1.pt
-    ...
-  layers/
-    seed_0.pt
-    seed_1.pt
-    ...
+  seed_0/
+    layers.pt
+    metrics.pt
+  seed_1/
+    layers.pt
+    metrics.pt
+  ...
   metrics/
-    seed_0.pt
-    seed_1.pt
-    ...
-    metrics_long.csv
+    bias2.csv
+    variance.csv
 ```
 
 For other scripts:
 
 ```text
 ./data/shot_sweep/ntrain_1000/
-./data/dim_sweep/shots_1/
+./data/dim_sweep/ntrain_100000/shots_1/
 ./data/local_training_sweep/global_target/
 ./data/beta_fit_sweep/
 ./data/frame_distance_sweep/
 ./data/prediction_geometry/
 ```
 
-The metadata should include at least:
+Metadata should be run-level metadata only, written once with `save_json`.
+The current seed contract is simple:
+
+```text
+metadata["seeds"] is a list of integer RNG seeds.
+seed_i uses metadata["seeds"][i].
+seed_run(out_dir, i, seed) creates seed_i/ and seeds Torch.
+```
+
+Do not store separate `simulation_seed` and `observable_seed` objects unless a
+new experiment truly needs multiple independent RNG streams.
+
+For `ntrain_sweep.py`, metadata should look like:
 
 ```json
 {
-  "experiment": "...",
+  "script": "ntrain_sweep.py",
   "dim": 2,
   "n_out": 16,
   "shots": 1,
-  "nseeds": 100,
-  "methods": ["ost", "state_prior_ost", "povm_prior_ost", "prior_ost", "pinv"],
-  "seeds": [
-    {
-      "index": 0,
-      "simulation_seed": 123,
-      "observable_seed": 456
-    }
-  ]
+  "train_max": 1000000,
+  "train_start": 1,
+  "train_step": 100,
+  "nseeds": 3,
+  "methods": ["ost", "state_prior_ost", "povm_prior_ost", "prior_ost", "pinv", "ridge"],
+  "precision": "float64",
+  "seeds": [123, 456, 789]
 }
 ```
 
-For dimension and local experiments, metadata should also include:
+For `shot_sweep.py`, metadata should look like:
 
 ```json
 {
+  "script": "shot_sweep.py",
+  "dim": 2,
+  "n_out": 16,
+  "n_train": 1000,
+  "shot_start": 1,
+  "shot_max": 100000,
+  "shot_step": 100,
+  "nseeds": 3,
+  "methods": ["ost", "state_prior_ost", "povm_prior_ost", "prior_ost", "pinv", "ridge"],
+  "precision": "float64",
+  "seeds": [123, 456, 789]
+}
+```
+
+For `dim_sweep.py`, metadata should look like:
+
+```json
+{
+  "script": "dim_sweep.py",
+  "experiment": "dim_sweep",
+  "shots": 1,
   "d_grid": [2, 3, 4, 5, 6, 8],
   "n_out_rule": "d**3",
-  "n_train_rule": "100*d**2",
+  "n_train": 100000,
+  "nseeds": 3,
+  "methods": ["ost", "state_prior_ost", "povm_prior_ost", "prior_ost", "pinv", "ridge"],
+  "precision": "float64",
+  "dimension_configs": [
+    {"d": 2, "n_out": 8, "n_train": 100000, "alpha": 2.0},
+    {"d": 3, "n_out": 27, "n_train": 100000, "alpha": 3.0}
+  ],
+  "seeds": [123, 456, 789]
+}
+```
+
+For local experiments, add experiment-specific fields such as:
+
+```json
+{
   "training_ensemble": "global_haar",
   "target_type": "global_projector"
 }
@@ -224,32 +305,25 @@ uv run python scripts/ntrain_sweep.py --shots 100
 
 For each seed index:
 
-1. sample global Haar pure training states:
-    
+Use the library helper:
 
 ```python
-states = sample_dm(max_ntrain, d=d, ...)
+data = sample_data(
+    train_max,
+    d=dim,
+    n_out=n_out,
+    shots=shots,
+    seed=seed,
+    device=device,
+    dtype=cdtype,
+)
 ```
 
-2. sample a random Naimark/Stiefel POVM:
+Then sample one target observable, initially a Haar random pure-state projector:
     
 
 ```python
-povm = sample_povm(n_out, d=d, ...)
-```
-
-3. sample raw outcomes:
-    
-
-```python
-outcomes = shots_outcome(povm, states, shots)
-```
-
-4. sample one target observable, initially a Haar random pure-state projector:
-    
-
-```python
-observable = sample_dm(1, d=d, ...).T
+observable = sample_dm(1, d=dim, device=device, dtype=cdtype).T
 ```
 
 ## Layer generation
@@ -257,12 +331,15 @@ observable = sample_dm(1, d=d, ...).T
 Use:
 
 ```python
-make_layers_ntrain_grid(
+result = ntrain_layers(
     data,
     observable,
-    train_grid,
+    train_grid=train_grid,
     n_shots=shots,
     methods=methods,
+    pinv_tol=pinv_tol,
+    ridge_alpha=ridge_alpha,
+    dtype=rdtype,
 )
 ```
 
@@ -277,16 +354,10 @@ train_grid = logspace_int(train_start, max_ntrain, train_step)
 Use:
 
 ```python
-evaluate_layer_result_haar(result, data.povm)
+metrics = haar_metrics(result, data.povm)
 ```
 
 Primary metric:
-
-```text
-mse_exact_probs
-```
-
-Equivalent diagnostic metric:
 
 ```text
 bias2
@@ -310,7 +381,7 @@ For each shot value:
 
 ```text
 x-axis: n_train
-y-axis: mse_exact_probs or bias2
+y-axis: bias2
 scale: log-log
 curves: ost, state_prior_ost, povm_prior_ost, prior_ost, pinv
 aggregation: mean over seeds
@@ -431,12 +502,15 @@ Use one fixed observable per seed.
 Use:
 
 ```python
-make_layers_shot_grid(
+result = shot_layers(
     data,
     observable,
-    shot_grid,
+    shot_grid=shot_grid,
     n_train=n_train,
     methods=methods,
+    pinv_tol=pinv_tol,
+    ridge_alpha=ridge_alpha,
+    dtype=rdtype,
 )
 ```
 
@@ -453,20 +527,20 @@ This script should rely on cumulative shot statistics, not regenerate probabilit
 Use:
 
 ```python
-evaluate_layer_result_haar(result, data.povm)
+metrics = haar_metrics(result, data.povm)
 ```
 
 Primary metric:
 
 ```text
-mse_exact_probs
+bias2
 ```
 
 ## Plot
 
 ```text
 x-axis: shots N
-y-axis: mse_exact_probs
+y-axis: bias2
 scale: log-log or semilog
 curves: ost, state_prior_ost, povm_prior_ost, prior_ost, pinv
 ```
@@ -548,35 +622,29 @@ This is useful because it reduces the risk that failure at larger `d` is merely 
 
 ## Parameters
 
-First version:
+Current version:
 
 ```text
 d_grid = 2 3 4 5 6 8
 n_out = d**3
-n_train = 100 * d**2
+n_train = 100000
 shots = 1
 nseeds = 20
-methods = ost state_prior_ost pinv
+methods = training_methods
 ```
 
-Second version:
+Repeat separate invocations for:
 
 ```text
-d_grid = 2 3 4 5 6 8
-n_out = d**3
-n_train = 100 * d**2
-shots = 100 or 1000
-nseeds = 20
-methods = ost state_prior_ost pinv
+shots = 1 10 100 1000
 ```
 
-Possible full version:
+Keep this simple for now:
 
 ```text
-shots_grid = [1, 100]
-d_grid = [2, 3, 4, 5, 6, 8]
-n_train_factor = 100
-n_out_rule = d**3
+do not parse n_out rules
+do not use n_train_factor
+do not reseed dimensions separately
 ```
 
 ## Data generation
@@ -585,21 +653,27 @@ For each dimension `d` and seed index:
 
 ```python
 n_out = d**3
-n_train = n_train_factor * d**2
+n_train = args.ntrain
 ```
 
-Then generate:
+Use:
 
 ```python
-states = sample_dm(n_train, d=d, ...)
-povm = sample_povm(n_out, d=d, ...)
-outcomes = shots_outcome(povm, states, shots)
-observable = sample_dm(1, d=d, ...).T
+data = sample_data(
+    n_train,
+    d=d,
+    n_out=n_out,
+    shots=shots,
+    seed=seed,
+    device=device,
+    dtype=cdtype,
+)
+observable = sample_dm(1, d=d, device=device, dtype=cdtype).T
 ```
 
 ## Layer generation
 
-Use `make_layers_ntrain_grid` with a single-point grid:
+Use `ntrain_layers` with a single-point training grid:
 
 ```python
 train_grid = torch.tensor([n_train])
@@ -608,21 +682,39 @@ train_grid = torch.tensor([n_train])
 Then:
 
 ```python
-make_layers_ntrain_grid(
+result = ntrain_layers(
     data,
     observable,
-    train_grid,
+    train_grid=train_grid,
     n_shots=shots,
     methods=methods,
+    pinv_tol=pinv_tol,
+    ridge_alpha=ridge_alpha,
+    dtype=rdtype,
 )
 ```
+
+Save each dimension layer as:
+
+```text
+seed_i/d_<d>_layers.pt
+```
+
+Collect the scalar metric for each dimension into one per-seed `MetricResult`:
+
+```text
+seed_i/metrics.pt
+```
+
+with `train_grid` reused as the dimension grid so that `save_metrics` can write
+plot-ready CSVs with `grid_column="d"`.
 
 ## Evaluation
 
 Use Haar exact-probability evaluation:
 
 ```python
-evaluate_layer_result_haar(result, povm)
+metrics = haar_metrics(result, data.povm)
 ```
 
 ## Plot
@@ -631,11 +723,13 @@ Recommended main plot:
 
 ```text
 Panel A: shots = 1
-Panel B: shots = 100 or 1000
+Panel B: shots = 10
+Panel C: shots = 100
+Panel D: shots = 1000
 
 x-axis: d
-y-axis: mse_exact_probs
-curves: ost, state_prior_ost, pinv
+y-axis: bias2
+curves: methods in training_methods, or a selected subset for the figure
 scale: log-log or semilog-y
 ```
 
@@ -758,13 +852,13 @@ observable = sample_dm(1, d=d, ...).T
 For global Haar:
 
 ```python
-make_layers_ntrain_grid(..., state_prior_frame=None)
+ntrain_layers(..., state_prior_frame=None)
 ```
 
 For product Haar:
 
 ```python
-make_layers_ntrain_grid(..., state_prior_frame=product_haar_state_frame(...))
+ntrain_layers(..., state_prior_frame=product_haar_state_frame(...))
 ```
 
 ## Evaluation
@@ -772,7 +866,7 @@ make_layers_ntrain_grid(..., state_prior_frame=product_haar_state_frame(...))
 Use the same Haar test evaluator first:
 
 ```python
-evaluate_layer_result_haar(result, povm)
+haar_metrics(result, povm)
 ```
 
 This evaluates global generalization.
@@ -781,7 +875,7 @@ This evaluates global generalization.
 
 ```text
 x-axis: n_qubits or d
-y-axis: mse_exact_probs
+y-axis: bias2
 curves:
   global_haar + ost
   product_haar + ost
@@ -903,7 +997,7 @@ There are two possible strategies.
 For each shot value:
 
 ```python
-make_layers_ntrain_grid(..., n_shots=shots)
+ntrain_layers(..., n_shots=shots)
 ```
 
 This is simpler and consistent with `ntrain_sweep.py`.
@@ -913,7 +1007,7 @@ This is simpler and consistent with `ntrain_sweep.py`.
 Add later only if necessary:
 
 ```python
-make_layers_shot_ntrain_grid(...)
+shot_ntrain_layers(...)
 ```
 
 Do not add this now unless runtime becomes a problem.
@@ -923,7 +1017,7 @@ Do not add this now unless runtime becomes a problem.
 Evaluate all layers with:
 
 ```python
-evaluate_layer_result_haar(...)
+haar_metrics(...)
 ```
 
 Then arrange MSE into tensors:
@@ -1223,28 +1317,54 @@ The data-generation scripts should not require matplotlib.
 
 ---
 
-# 12. Shared helper functions to add later to the library
+# 12. Shared library helpers
 
-The scripts will stay cleaner if these are added after the first two scripts stabilize.
+The scripts should stay cleaner by reusing shared library helpers.
+Before adding any new helper, first check whether the current library already
+provides the needed operation.
+
+Currently useful top-level imports from `online_qml` include:
+
+```python
+training_methods
+torch_setup
+random_seed
+seed_run
+timed
+logspace_int
+save_pt
+load_pt
+save_json
+save_metrics
+sample_dm
+sample_product_dm
+product_haar_state_frame
+sample_data
+ntrain_layers
+shot_layers
+haar_metrics
+MetricResult
+```
+
+The current default method list is:
+
+```python
+training_methods = [
+    "ost",
+    "state_prior_ost",
+    "povm_prior_ost",
+    "prior_ost",
+    "pinv",
+    "ridge",
+]
+```
 
 ## 12.1 Simulation generation
 
-Add:
+Already available:
 
 ```python
-def make_simulation_data(
-    d: int,
-    n_out: int,
-    n_states: int,
-    shots: int,
-    seed: int,
-    device: torch.device,
-    dtype: torch.dtype,
-    state_sampler: str = "global_haar",
-    n_sites: int | None = None,
-    local_dim: int = 2,
-) -> SimulationData:
-    ...
+sample_data
 ```
 
 Purpose:
@@ -1255,82 +1375,50 @@ Used by ntrain_sweep, shot_sweep, dim_sweep, local_training_sweep, beta_fit_swee
 
 ## 12.2 Artifact loaders
 
-Add:
+Only add typed artifact loaders if scripts start reconstructing dataclasses
+manually in several places. Until then, use:
 
 ```python
-def load_layer_result(path, device="cpu") -> LayerResult:
-    ...
+save_pt
+load_pt
 ```
 
-```python
-def load_metric_result(path, device="cpu") -> MetricResult:
-    ...
-```
+and keep save/load logic simple.
 
-Purpose:
+## 12.3 Cache helpers
 
-```text
-Avoid reconstructing dataclasses manually in every script.
-```
-
-## 12.3 Simple load-or-make helper
-
-Add:
-
-```python
-def load_or_make(path, make_fn, load_fn=load_pt, save_fn=save_pt):
-    if Path(path).exists():
-        return load_fn(path)
-    obj = make_fn()
-    save_fn(obj, path)
-    return obj
-```
-
-Keep it simple. Do not add a complicated cache framework yet.
+Do not add a cache framework yet.
+The current preference is to regenerate data and overwrite outputs unless the
+user explicitly asks for file reuse.
 
 ## 12.4 Metrics CSV writer
 
-Add:
+Already available:
 
 ```python
-def save_metrics_long_csv(
-    metric_files: list[Path],
-    csv_path: Path,
-    extra_fields: dict | None = None,
-) -> None:
-    ...
+save_metrics
 ```
 
-Purpose:
+Use this for n-train, shot, and dimension sweeps. Do not add custom pandas
+summary writers in individual scripts unless `save_metrics` truly cannot
+represent the output.
+
+Current plot-friendly output is one CSV per metric, for example:
 
 ```text
-Used by all scripts.
+bias2.csv
+variance.csv
 ```
 
-The CSV should always have columns:
+with columns like:
 
 ```text
-seed_index
-method
-metric
-value
-```
-
-plus experiment-specific columns such as:
-
-```text
-shots
-n_train
-d
-n_out
-n_qubits
-training_ensemble
-target_type
+n_train,shots,ost,ost_q30,ost_q70,pinv,pinv_q30,pinv_q70,...
 ```
 
 ## 12.5 Fixed-budget layer helper
 
-Optional:
+Optional later only if repeated fixed-budget code becomes annoying:
 
 ```python
 def make_layers_fixed_budget(
@@ -1342,20 +1430,27 @@ def make_layers_fixed_budget(
     **kwargs,
 ):
     train_grid = torch.tensor([n_train], device=data.states.device)
-    return make_layers_ntrain_grid(...)
+    return ntrain_layers(...)
 ```
 
 This is mainly for `dim_sweep.py` and `local_training_sweep.py`.
 
 ---
 
-# 13. Execution priority
+# 13. Build priority and user-run commands
 
-Run scripts in this order.
+Build scripts in this order.
+
+Important:
+
+```text
+The commands below are for the user to run.
+Coding assistants should not run these commands unless explicitly asked.
+```
 
 ## Step 1 — Finish and test `ntrain_sweep.py`
 
-Local debug:
+User local debug:
 
 ```bash
 uv run python scripts/ntrain_sweep.py \
@@ -1365,7 +1460,7 @@ uv run python scripts/ntrain_sweep.py \
   --nseeds 3
 ```
 
-Then full:
+User full runs:
 
 ```bash
 uv run python scripts/ntrain_sweep.py --shots 1 --max-ntrain 1000000 --train-step 100 --nseeds 100
@@ -1375,7 +1470,7 @@ uv run python scripts/ntrain_sweep.py --shots 100 --max-ntrain 1000000 --train-s
 
 ## Step 2 — Build `shot_sweep.py`
 
-Local debug:
+User local debug:
 
 ```bash
 uv run python scripts/shot_sweep.py \
@@ -1385,7 +1480,7 @@ uv run python scripts/shot_sweep.py \
   --nseeds 3
 ```
 
-Full:
+User full run:
 
 ```bash
 uv run python scripts/shot_sweep.py \
@@ -1397,36 +1492,52 @@ uv run python scripts/shot_sweep.py \
 
 ## Step 3 — Build `dim_sweep.py`
 
-Start small:
+This script should use simple hard-coded paper rules:
+
+```python
+n_out = d**3
+n_train = 100_000
+```
+
+Do not parse dimension rules such as `"alpha*d**2"` unless that becomes a
+real need later.
+
+User small run:
 
 ```bash
 uv run python scripts/dim_sweep.py \
   --d-grid 2 3 4 \
   --shots 1 \
-  --n-train-factor 50 \
+  --ntrain 100000 \
   --nseeds 5
 ```
 
-Then full:
+User full runs:
 
 ```bash
 uv run python scripts/dim_sweep.py \
   --d-grid 2 3 4 5 6 8 \
   --shots 1 \
-  --n-train-factor 100 \
+  --ntrain 100000 \
   --nseeds 20
-```
 
-Repeat with:
+uv run python scripts/dim_sweep.py \
+  --d-grid 2 3 4 5 6 8 \
+  --shots 10 \
+  --ntrain 100000 \
+  --nseeds 20
 
-```bash
---shots 100
-```
+uv run python scripts/dim_sweep.py \
+  --d-grid 2 3 4 5 6 8 \
+  --shots 100 \
+  --ntrain 100000 \
+  --nseeds 20
 
-or:
-
-```bash
---shots 1000
+uv run python scripts/dim_sweep.py \
+  --d-grid 2 3 4 5 6 8 \
+  --shots 1000 \
+  --ntrain 100000 \
+  --nseeds 20
 ```
 
 ## Step 4 — Build `local_training_sweep.py`
