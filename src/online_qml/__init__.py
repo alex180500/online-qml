@@ -39,6 +39,7 @@ from .experiments import (
     ntrain_layers,
     sample_data,
     shot_layers,
+    stack_metric_results,
     state_frame_distances,
 )
 from .quantum import (
@@ -129,6 +130,7 @@ __all__ = [
     "ntrain_layers",
     "shot_layers",
     "haar_metrics",
+    "stack_metric_results",
     "state_frame_distances",
     "measurement_frame_distances",
     "fit_betas",

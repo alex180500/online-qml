@@ -62,8 +62,9 @@ class MetricResult:
 
     Args:
         metrics (dict[str, torch.Tensor]): Metric tensors with shape matching the layer grid.
-        train_grid (torch.Tensor): Training-state grid with shape (n_train_grid,).
+        train_grid (torch.Tensor | None): Training-state grid with shape (n_train_grid,).
         shot_grid (torch.Tensor | None): Shot grid with shape (n_shot_grid,) or None.
+        coords (dict): Named scalar or vector coordinates for metric values.
         seed (int | None): Random seed used to generate the data.
         d (int | None): Hilbert-space dimension.
         n_out (int | None): Number of POVM outcomes.
@@ -71,8 +72,9 @@ class MetricResult:
     """
 
     metrics: dict[str, torch.Tensor]
-    train_grid: torch.Tensor
+    train_grid: torch.Tensor | None = None
     shot_grid: torch.Tensor | None = None
+    coords: dict[str, Any] = field(default_factory=dict)
     seed: int | None = None
     d: int | None = None
     n_out: int | None = None

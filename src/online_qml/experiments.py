@@ -1,4 +1,5 @@
-from typing import Iterable
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any
 import torch
 
 from .core.containers import LayerResult, MetricResult, SimulationData
@@ -256,14 +257,66 @@ def haar_metrics(result: LayerResult, povm: torch.Tensor) -> MetricResult:
         MetricResult: Haar metrics with shapes matching the layer grid.
     """
     metrics = evaluate_layers_haar(result.layers, povm, result.observable)
+    coords: dict[str, Any] = {"n_train": result.train_grid}
+    if result.shot_grid is not None:
+        coords["shots"] = result.shot_grid
     return MetricResult(
         metrics=metrics,
         train_grid=result.train_grid,
         shot_grid=result.shot_grid,
+        coords=coords,
         seed=result.seed,
         d=result.d,
         n_out=result.n_out,
         metadata={"metric": "haar_bias_variance"},
+    )
+
+
+def stack_metric_results(
+    results: Sequence[MetricResult],
+    grid_name: str,
+    grid_values: torch.Tensor,
+    extra_coords: Mapping[str, Any] | None = None,
+) -> MetricResult:
+    """Stack single-point metric results into one metric grid."""
+    if len(results) != int(grid_values.numel()):
+        raise ValueError("Number of metric results must match grid_values.")
+
+    device = grid_values.device
+    metric_keys = tuple(results[0].metrics)
+    metrics: dict[str, torch.Tensor] = {}
+    for key in metric_keys:
+        values = []
+        for result in results:
+            if key not in result.metrics:
+                raise ValueError(f"Metric result is missing '{key}'.")
+            value = result.metrics[key].detach().reshape(-1)[0].to(device=device)
+            values.append(value)
+        metrics[key] = torch.stack(values)
+
+    coords: dict[str, Any] = {grid_name: grid_values}
+    for name, value in dict(extra_coords or {}).items():
+        if isinstance(value, torch.Tensor):
+            coords[name] = value.to(device=device)
+        elif isinstance(value, list | tuple):
+            coords[name] = torch.tensor(value, device=device)
+        else:
+            coords[name] = value
+
+    train_grid = coords.get("n_train")
+    if not isinstance(train_grid, torch.Tensor):
+        train_grid = None
+    shot_grid = coords.get("shots")
+    if not isinstance(shot_grid, torch.Tensor):
+        shot_grid = None
+
+    return MetricResult(
+        metrics=metrics,
+        train_grid=train_grid,
+        shot_grid=shot_grid,
+        coords=coords,
+        seed=results[0].seed,
+        metadata={"metric": "stacked", "grid": grid_name},
     )
 
 

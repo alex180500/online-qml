@@ -91,7 +91,5 @@ save_metrics(
     out_dir / "metrics",
     methods=args.methods,
     metric_names=("bias2", "variance"),
-    grid_key="shot_grid",
     grid_column="shots",
-    fixed_columns={"n_train": args.ntrain},
 )

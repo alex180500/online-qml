@@ -36,6 +36,23 @@ def load_json(path: str | Path) -> dict[str, Any]:
         return json.load(f)
 
 
+def _as_coord_list(value: Any) -> list[Any]:
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().reshape(-1).tolist()
+    if isinstance(value, list | tuple):
+        return list(value)
+    return [value]
+
+
+def _coord_at(value: Any, index: int, size: int) -> Any:
+    values = _as_coord_list(value)
+    if len(values) == size:
+        return values[index]
+    if len(values) == 1:
+        return values[0]
+    raise ValueError(f"Coordinate has {len(values)} values, expected 1 or {size}.")
+
+
 def save_metrics(
     metric_files: Mapping[Any, str | Path],
     path: str | Path,
@@ -61,7 +78,8 @@ def save_metrics(
             metric_name: path / f"{metric_name}.csv" for metric_name in metric_names
         }
 
-    grid: list[int] | None = None
+    grid: list[Any] | None = None
+    coord_columns: list[str] | None = None
     records: list[dict[str, Any]] = []
 
     for metric_file in metric_files.values():
@@ -70,17 +88,36 @@ def save_metrics(
             continue
 
         metric_data = load_pt(metric_file, device="cpu")
-        file_grid = [
-            int(x) for x in metric_data[grid_key].detach().cpu().reshape(-1).tolist()
-        ]
+        coords = dict(metric_data.get("coords") or {})
+        if grid_column in coords:
+            grid_source = coords[grid_column]
+        else:
+            grid_source = metric_data[grid_key]
+            coords.setdefault(grid_column, grid_source)
+
+        file_grid = _as_coord_list(grid_source)
         if grid is None:
             grid = file_grid
+            coord_columns = [
+                name
+                for name, value in coords.items()
+                if name != grid_column
+                and len(_as_coord_list(value)) in {1, len(grid)}
+            ]
+            for name in fixed_columns:
+                if name not in coord_columns:
+                    coord_columns.append(name)
         elif file_grid != grid:
             raise ValueError(
                 f"Metric grid in {metric_file} does not match previous files."
             )
 
         metrics = metric_data["metrics"]
+        extra_coords = {
+            name: coords[name]
+            for name in (coord_columns or [])
+            if name in coords and name not in fixed_columns
+        }
         for metric_name in metric_names:
             for method in methods:
                 key = f"{method}_{metric_name}"
@@ -92,13 +129,19 @@ def save_metrics(
                         f"Metric '{key}' in {metric_file} has {len(series)} values, "
                         f"but '{grid_key}' has {len(file_grid)} values."
                     )
-                for grid_value, value in zip(file_grid, series, strict=True):
+                for index, (grid_value, value) in enumerate(
+                    zip(file_grid, series, strict=True)
+                ):
                     records.append(
                         {
                             "_metric": metric_name,
                             "_method": method,
                             "_value": float(value),
                             grid_column: grid_value,
+                            **{
+                                name: _coord_at(coord, index, len(file_grid))
+                                for name, coord in extra_coords.items()
+                            },
                             **fixed_columns,
                         }
                     )
@@ -107,17 +150,15 @@ def save_metrics(
         raise ValueError("No metric files were found.")
 
     data = pd.DataFrame.from_records(records)
-    index_columns = [grid_column, *fixed_columns]
+    index_columns = [grid_column, *(coord_columns or [])]
 
     for metric_name, output_path in output_paths.items():
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        columns = [grid_column, *fixed_columns.keys()]
+        columns = [grid_column, *(coord_columns or [])]
         for method in methods:
             columns.extend([method, f"{method}_q30", f"{method}_q70"])
 
-        output = pd.DataFrame({grid_column: grid})
-        for key, value in fixed_columns.items():
-            output[key] = value
+        output = data[index_columns].drop_duplicates().sort_values(grid_column)
 
         if not data.empty:
             metric_data = data[data["_metric"] == metric_name]

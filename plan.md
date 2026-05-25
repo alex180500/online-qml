@@ -229,15 +229,11 @@ For `dim_sweep.py`, metadata should look like:
   "experiment": "dim_sweep",
   "shots": 1,
   "d_grid": [2, 3, 4, 5, 6, 8],
-  "n_out_rule": "d**3",
+  "n_out_grid": [8, 27, 64, 125, 216, 512],
   "n_train": 100000,
   "nseeds": 3,
   "methods": ["ost", "state_prior_ost", "povm_prior_ost", "prior_ost", "pinv", "ridge"],
   "precision": "float64",
-  "dimension_configs": [
-    {"d": 2, "n_out": 8, "n_train": 100000, "alpha": 2.0},
-    {"d": 3, "n_out": 27, "n_train": 100000, "alpha": 3.0}
-  ],
   "seeds": [123, 456, 789]
 }
 ```
@@ -706,8 +702,23 @@ Collect the scalar metric for each dimension into one per-seed `MetricResult`:
 seed_i/metrics.pt
 ```
 
-with `train_grid` reused as the dimension grid so that `save_metrics` can write
-plot-ready CSVs with `grid_column="d"`.
+Use `stack_metric_results(...)` with coordinate metadata:
+
+```python
+seed_metric_result = stack_metric_results(
+    metric_results,
+    grid_name="d",
+    grid_values=d_grid,
+    extra_coords={
+        "n_out": n_out_grid,
+        "n_train": ntrain,
+        "shots": shots,
+    },
+)
+```
+
+Then `save_metrics(..., grid_column="d")` writes plot-ready CSVs using
+`MetricResult.coords`.
 
 ## Evaluation
 
@@ -1343,6 +1354,7 @@ sample_data
 ntrain_layers
 shot_layers
 haar_metrics
+stack_metric_results
 MetricResult
 ```
 
@@ -1402,6 +1414,11 @@ save_metrics
 Use this for n-train, shot, and dimension sweeps. Do not add custom pandas
 summary writers in individual scripts unless `save_metrics` truly cannot
 represent the output.
+
+`MetricResult` stores named coordinates in `coords`. `save_metrics` should read
+the sweep axis from `coords[grid_column]` when available, and include other
+scalar or same-length coordinates such as `shots`, `n_train`, and `n_out` in the
+CSV.
 
 Current plot-friendly output is one CSV per metric, for example:
 
