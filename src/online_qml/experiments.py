@@ -394,6 +394,79 @@ def measurement_frame_distances(
     return {f"measurement_{key}": torch.stack(vals) for key, vals in out.items()}
 
 
+def _int_grid(
+    values: torch.Tensor | Sequence[int],
+    device: torch.device | str,
+) -> torch.Tensor:
+    if isinstance(values, torch.Tensor):
+        return values.to(device=device, dtype=torch.int64)
+    return torch.tensor(list(values), device=device, dtype=torch.int64)
+
+
+def state_frame_distance_grid(
+    d: int,
+    train_grid: torch.Tensor | Sequence[int],
+    gamma_grid: torch.Tensor | Sequence[int] | None = None,
+    *,
+    seed: int | None = None,
+    device: torch.device | str = "cpu",
+    dtype: torch.dtype = torch.cdouble,
+) -> MetricResult:
+    """Compute state-frame distances and package them for metric saving."""
+    train_grid = _int_grid(train_grid, device)
+    metrics = state_frame_distances(
+        train_grid,
+        d=d,
+        device=device,
+        dtype=dtype,
+    )
+    return MetricResult(
+        metrics=metrics,
+        train_grid=train_grid,
+        coords={
+            "n_train": train_grid,
+            "d": d,
+            **(
+                {"gamma": _int_grid(gamma_grid, device)}
+                if gamma_grid is not None
+                else {}
+            ),
+        },
+        seed=seed,
+        d=d,
+        metadata={"metric": "frame_distance", "frame": "state"},
+    )
+
+
+def measurement_frame_distance_grid(
+    d: int,
+    n_out_grid: torch.Tensor | Sequence[int],
+    alpha_grid: torch.Tensor | Sequence[int] | None = None,
+    *,
+    seed: int | None = None,
+    device: torch.device | str = "cpu",
+    dtype: torch.dtype = torch.cdouble,
+) -> MetricResult:
+    """Compute measurement-frame distances and package them for metric saving."""
+    n_out_grid = _int_grid(n_out_grid, device)
+    metrics = measurement_frame_distances(
+        d,
+        n_out_grid,
+        device=device,
+        dtype=dtype,
+    )
+    coords: dict[str, Any] = {"n_out": n_out_grid, "d": d}
+    if alpha_grid is not None:
+        coords["alpha"] = _int_grid(alpha_grid, device)
+    return MetricResult(
+        metrics=metrics,
+        coords=coords,
+        seed=seed,
+        d=d,
+        metadata={"metric": "frame_distance", "frame": "measurement"},
+    )
+
+
 # ----- BETA FITS -----
 
 
