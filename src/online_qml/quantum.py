@@ -47,6 +47,36 @@ def sample_dm(
     return density.reshape(d * d, n_states)
 
 
+def haar_projector_variance(d: int) -> float:
+    """Return the Haar variance of a centered rank-one projector."""
+    return (d - 1) / (d * d * (d + 1))
+
+
+def sample_norm_proj(
+    d: int = 2,
+    device: torch.device | str = "cpu",
+    dtype: torch.dtype = torch.cfloat,
+) -> torch.Tensor:
+    """Sample one centered Haar projector with unit Haar variance.
+
+    Returns:
+        torch.Tensor: Flattened observable with shape (d^2,).
+    """
+    projector = sample_dm(1, d=d, device=device, dtype=dtype).reshape(-1)
+    identity = torch.eye(d, device=device, dtype=dtype).reshape(-1)
+    observable = (projector - identity / d) / (haar_projector_variance(d) ** 0.5)
+    if observable.shape != (d * d,):
+        raise ValueError(f"Bad observable shape: {tuple(observable.shape)}")
+    return observable
+
+
+def incomplete_povm_floor(d: int, n_out: int) -> float:
+    """Return the normalized projection-error floor for a centered target."""
+    centered_dim = d * d - 1
+    accessible_dim = min(n_out - 1, centered_dim)
+    return 1.0 - accessible_dim / centered_dim
+
+
 def sample_product_dm(
     n_states: int,
     n_sites: int,

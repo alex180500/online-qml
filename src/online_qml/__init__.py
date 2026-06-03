@@ -35,11 +35,13 @@ from .evaluation import (
 from .experiments import (
     fit_betas,
     haar_metrics,
+    measurement_frame_distance_grid,
     measurement_frame_distances,
     ntrain_layers,
     sample_data,
     shot_layers,
     stack_metric_results,
+    state_frame_distance_grid,
     state_frame_distances,
 )
 from .quantum import (
@@ -49,11 +51,14 @@ from .quantum import (
     get_observables,
     get_test_mse,
     haar_state_frame,
+    haar_projector_variance,
+    incomplete_povm_floor,
     infinite_stats,
     measurement_frame,
     naimark_measurement_frame_prior,
     product_haar_state_frame,
     sample_dm,
+    sample_norm_proj,
     sample_product_dm,
     sample_povm,
     sample_states,
@@ -95,6 +100,7 @@ __all__ = [
     # Quantum state, observable and POVM utilities.
     "sample_states",
     "sample_dm",
+    "sample_norm_proj",
     "sample_product_dm",
     "sample_traceless_operator",
     "as_observable_matrix",
@@ -114,6 +120,8 @@ __all__ = [
     "measurement_frame",
     "frame_relative_spectrum",
     "frame_distance_summary",
+    "haar_projector_variance",
+    "incomplete_povm_floor",
     # Test/evaluation helpers.
     "get_test_mse",
     "HaarBiasVariance",
@@ -131,7 +139,9 @@ __all__ = [
     "shot_layers",
     "haar_metrics",
     "stack_metric_results",
+    "state_frame_distance_grid",
     "state_frame_distances",
+    "measurement_frame_distance_grid",
     "measurement_frame_distances",
     "fit_betas",
 ]

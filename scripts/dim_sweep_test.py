@@ -10,11 +10,6 @@ parser.add_argument("-d", "--d-grid", nargs="+", type=int, default=list(range(2,
 parser.add_argument("--n-out-rule", type=str, default="4*d**2")
 parser.add_argument("--ntrain-rule", type=str, default="1e3*d**2")
 parser.add_argument("-s", "--shots", type=int, default=100)
-parser.add_argument(
-    "--target",
-    choices=("sample_dm", "sample_norm_proj"),
-    default="sample_dm",
-)
 parser.add_argument("--nseeds", type=int, default=3)
 parser.add_argument("--methods", nargs="+", default=training_methods)
 parser.add_argument("--pinv-tol", type=float, default=1e-10)
@@ -32,36 +27,37 @@ device, rdtype, cdtype = torch_setup(
     verbose=True,
 )
 
-out_dir = args.folder / args.folder_name
+out_dir = args.folder / args.folder_name / f"shots_{args.shots}"
 out_dir.mkdir(parents=True, exist_ok=True)
 
 n_out_grid = [int(eval(args.n_out_rule, {"d": d})) for d in args.d_grid]
 ntrain_grid = [int(eval(args.ntrain_rule, {"d": d})) for d in args.d_grid]
-print(f"Using n_out_grid={n_out_grid} and ntrain_grid={ntrain_grid}")
+oracle_floor_grid = [
+    incomplete_povm_floor(d, n_out)
+    for d, n_out in zip(args.d_grid, n_out_grid, strict=True)
+]
 
-oracle_floor_grid = None
-if args.target == "sample_norm_proj":
-    oracle_floor_grid = [
-        incomplete_povm_floor(d, n_out)
-        for d, n_out in zip(args.d_grid, n_out_grid, strict=True)
-    ]
+print(f"Using n_out_grid={n_out_grid}")
+print(f"Using ntrain_grid={ntrain_grid}")
+print(f"Using oracle_floor_grid={oracle_floor_grid}")
 
 run_metadata = {
     "script": "dim_sweep.py",
-    "experiment": "dim_sweep",
-    "target": args.target,
+    "experiment": "dim_sweep_incomplete_povm",
+    "target": "sample_norm_proj",
+    "target_normalization": "unit Haar variance",
     "shots": args.shots,
     "d_grid": args.d_grid,
+    "n_out_rule": args.n_out_rule,
+    "ntrain_rule": args.ntrain_rule,
     "n_out_grid": n_out_grid,
     "n_train_grid": ntrain_grid,
+    "oracle_floor_grid": oracle_floor_grid,
     "nseeds": args.nseeds,
     "methods": args.methods,
     "precision": args.precision,
     "seeds": [random_seed() for _ in range(args.nseeds)],
 }
-if oracle_floor_grid is not None:
-    run_metadata["target_normalization"] = "unit Haar variance"
-    run_metadata["oracle_floor_grid"] = oracle_floor_grid
 save_json(run_metadata, out_dir / "metadata.json")
 
 metric_names = ("bias2", "variance")
@@ -92,13 +88,14 @@ for seed_id in range(args.nseeds):
         )
         tot_sample_time = sample_time
 
-        if args.target == "sample_dm":
-            observable = sample_dm(1, d=d, device=device, dtype=cdtype).T
-        elif args.target == "sample_norm_proj":
-            observable = sample_norm_proj(d=d, device=device, dtype=cdtype)
-        else:
-            raise ValueError(f"Unknown target: {args.target}")
+        observable = sample_norm_proj(
+            d=d,
+            device=device,
+            dtype=cdtype,
+        )
+
         train_grid = torch.tensor([n_train], device=device, dtype=torch.int64)
+
         result, layer_time = timed(
             ntrain_layers,
             data,
@@ -130,19 +127,16 @@ for seed_id in range(args.nseeds):
         f"metrics={tot_metric_time:.2f}s"
     )
 
-    extra_coords = {
-        "n_out": n_out_grid,
-        "n_train": ntrain_grid,
-        "shots": args.shots,
-    }
-    if oracle_floor_grid is not None:
-        extra_coords["oracle_floor"] = oracle_floor_grid
-
     seed_metric_result = stack_metric_results(
         metric_results,
         grid_name="d",
         grid_values=d_grid,
-        extra_coords=extra_coords,
+        extra_coords={
+            "n_out": n_out_grid,
+            "n_train": ntrain_grid,
+            "shots": args.shots,
+            "oracle_floor": oracle_floor_grid,
+        },
     )
     save_pt(seed_metric_result, seed_dir / "metrics.pt")
 
