@@ -13,17 +13,17 @@ parser.add_argument("--alpha-start", type=int, default=1)
 parser.add_argument("--alpha-step", type=int, default=20)
 parser.add_argument("--nseeds", type=int, default=20)
 parser.add_argument("--state-only", action="store_true")
-parser.add_argument("--measurement-only", action="store_true")
+parser.add_argument("--povm-only", action="store_true")
 parser.add_argument("--device", type=str, default="cpu")
 parser.add_argument("--precision", type=str, default="float64")
 parser.add_argument("--torch-threads", type=int, default=None)
 args = parser.parse_args()
 
-if args.state_only and args.measurement_only:
-    raise ValueError("Choose at most one of --state-only and --measurement-only.")
+if args.state_only and args.povm_only:
+    raise ValueError("Choose at most one of --state-only and --povm-only.")
 
-run_state = not args.measurement_only
-run_measurement = not args.state_only
+run_state = not args.povm_only
+run_povm = not args.state_only
 
 device, rdtype, cdtype = torch_setup(
     device=args.device,
@@ -62,14 +62,14 @@ run_metadata = {
     "nseeds": args.nseeds,
     "precision": args.precision,
     "run_state": run_state,
-    "run_measurement": run_measurement,
+    "run_povm": run_povm,
     "metric_names": metric_names,
     "seeds": [random_seed() for _ in range(args.nseeds)],
 }
 save_json(run_metadata, out_dir / "metadata.json")
 
 state_metric_files: dict[int, dict[int, Path]] = {d: {} for d in args.d_grid}
-measurement_metric_files: dict[int, dict[int, Path]] = {d: {} for d in args.d_grid}
+povm_metric_files: dict[int, dict[int, Path]] = {d: {} for d in args.d_grid}
 
 for seed_id in range(args.nseeds):
     seed = run_metadata["seeds"][seed_id]
@@ -80,10 +80,10 @@ for seed_id in range(args.nseeds):
         n_out_grid = alpha_grid * d * d
 
         state_path = seed_dir / f"state_d_{d}.pt"
-        measurement_path = seed_dir / f"measurement_d_{d}.pt"
+        povm_path = seed_dir / f"povm_d_{d}.pt"
 
         state_time = 0.0
-        measurement_time = 0.0
+        povm_time = 0.0
 
         if run_state:
             state_metrics, state_time = timed(
@@ -98,9 +98,9 @@ for seed_id in range(args.nseeds):
             save_pt(state_metrics, state_path)
             state_metric_files[d][seed_id] = state_path
 
-        if run_measurement:
-            measurement_metrics, measurement_time = timed(
-                measurement_frame_distance_grid,
+        if run_povm:
+            povm_metrics, povm_time = timed(
+                povm_frame_distance_grid,
                 d=d,
                 n_out_grid=n_out_grid,
                 alpha_grid=alpha_grid,
@@ -108,12 +108,12 @@ for seed_id in range(args.nseeds):
                 device=device,
                 dtype=cdtype,
             )
-            save_pt(measurement_metrics, measurement_path)
-            measurement_metric_files[d][seed_id] = measurement_path
+            save_pt(povm_metrics, povm_path)
+            povm_metric_files[d][seed_id] = povm_path
 
         print(
             f"[seed {seed_id} / {args.nseeds}] "
-            f"d={d} state={state_time:.2f}s measurement={measurement_time:.2f}s"
+            f"d={d} state={state_time:.2f}s povm={povm_time:.2f}s"
         )
 
 if run_state:
@@ -126,12 +126,12 @@ if run_state:
             grid_column="gamma",
         )
 
-if run_measurement:
+if run_povm:
     for d in args.d_grid:
         save_metrics(
-            measurement_metric_files[d],
-            out_dir / "metrics" / "measurement" / f"d_{d}",
-            methods=("measurement",),
+            povm_metric_files[d],
+            out_dir / "metrics" / "povm" / f"d_{d}",
+            methods=("povm",),
             metric_names=metric_names,
             grid_column="alpha",
         )

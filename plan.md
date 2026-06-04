@@ -2,7 +2,7 @@
 
 ## 0. Article-level goal
 
-The article should demonstrate that standard QELM readout training fails in the low-shot regime because it learns from a noisy empirical probability matrix, while Online Shadow Training learns the effective reservoir POVM and constructs the readout through the associated dual measurement frame.
+The article should demonstrate that standard QELM readout training fails in the low-shot regime because it learns from a noisy empirical probability matrix, while Online Shadow Training learns the effective reservoir POVM and constructs the readout through the associated dual POVM frame.
 
 The central numerical message should be:
 
@@ -1101,7 +1101,7 @@ It should validate the frame-geometry statements:
 
 ```text
 state-frame concentration needs n_train on the order of d^2
-measurement-frame concentration needs n_out on the order of d^2
+POVM-frame concentration needs n_out on the order of d^2
 ```
 
 The natural metric is the relative whitened frame error, not raw Frobenius distance.
@@ -1118,7 +1118,8 @@ Parameters:
 
 ```text
 d_grid = 2 4 8
-train_grid = logspace_int(d**2, 1_000_000, 100)
+gamma_grid = logspace_int(1, 10_000, 30)
+n_train = gamma * d**2
 nseeds = 20
 ```
 
@@ -1135,7 +1136,7 @@ state_condition
 Plot:
 
 ```text
-x-axis: n_train / d^2
+x-axis: gamma = n_train / d^2
 y-axis: state_rel_op
 curves: d = 2, 4, 8
 ```
@@ -1143,7 +1144,7 @@ curves: d = 2, 4, 8
 Also plot:
 
 ```text
-lambda_min and lambda_max vs n_train / d^2
+lambda_min and lambda_max vs gamma = n_train / d^2
 ```
 
 Expected:
@@ -1152,19 +1153,19 @@ Expected:
 relative error decreases approximately like d / sqrt(n_train)
 ```
 
-## Part 2: measurement-frame distance
+## Part 2: POVM-frame distance
 
 Use:
 
 ```python
-measurement_frame_distance_grid(...)
+povm_frame_distance_grid(...)
 ```
 
 Parameters:
 
 ```text
 d_grid = 2 4 8
-alpha_grid = 1 2 4 8 16 32 64
+alpha_grid = logspace_int(1, 64, 30)
 n_out = alpha * d**2
 nseeds = 20
 ```
@@ -1172,18 +1173,18 @@ nseeds = 20
 Metrics:
 
 ```text
-measurement_rel_op
-measurement_rel_fro
-measurement_lambda_min
-measurement_lambda_max
-measurement_condition
+povm_rel_op
+povm_rel_fro
+povm_lambda_min
+povm_lambda_max
+povm_condition
 ```
 
 Plot:
 
 ```text
 x-axis: alpha = n_out / d^2
-y-axis: measurement_rel_op
+y-axis: povm_rel_op
 curves: d = 2, 4, 8
 ```
 

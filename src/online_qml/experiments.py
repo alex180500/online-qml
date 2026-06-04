@@ -363,13 +363,13 @@ def state_frame_distances(
     return {f"state_{key}": torch.stack(vals) for key, vals in out.items()}
 
 
-def measurement_frame_distances(
+def povm_frame_distances(
     d: int,
     n_out_grid: torch.Tensor,
     device: torch.device | str = "cpu",
     dtype: torch.dtype = torch.cdouble,
 ) -> dict[str, torch.Tensor]:
-    """Compute measurement-frame distances over n_out.
+    """Compute POVM-frame distances over n_out.
 
     Args:
         d (int): Hilbert-space dimension.
@@ -391,7 +391,22 @@ def measurement_frame_distances(
         summary = frame_distance_summary(ref, emp)
         for key in out:
             out[key].append(summary[key])
-    return {f"measurement_{key}": torch.stack(vals) for key, vals in out.items()}
+    return {f"povm_{key}": torch.stack(vals) for key, vals in out.items()}
+
+
+def measurement_frame_distances(
+    d: int,
+    n_out_grid: torch.Tensor,
+    device: torch.device | str = "cpu",
+    dtype: torch.dtype = torch.cdouble,
+) -> dict[str, torch.Tensor]:
+    """Compatibility alias for povm_frame_distances."""
+    return povm_frame_distances(
+        d,
+        n_out_grid,
+        device=device,
+        dtype=dtype,
+    )
 
 
 def _int_grid(
@@ -438,7 +453,7 @@ def state_frame_distance_grid(
     )
 
 
-def measurement_frame_distance_grid(
+def povm_frame_distance_grid(
     d: int,
     n_out_grid: torch.Tensor | Sequence[int],
     alpha_grid: torch.Tensor | Sequence[int] | None = None,
@@ -447,9 +462,9 @@ def measurement_frame_distance_grid(
     device: torch.device | str = "cpu",
     dtype: torch.dtype = torch.cdouble,
 ) -> MetricResult:
-    """Compute measurement-frame distances and package them for metric saving."""
+    """Compute POVM-frame distances and package them for metric saving."""
     n_out_grid = _int_grid(n_out_grid, device)
-    metrics = measurement_frame_distances(
+    metrics = povm_frame_distances(
         d,
         n_out_grid,
         device=device,
@@ -463,7 +478,27 @@ def measurement_frame_distance_grid(
         coords=coords,
         seed=seed,
         d=d,
-        metadata={"metric": "frame_distance", "frame": "measurement"},
+        metadata={"metric": "frame_distance", "frame": "povm"},
+    )
+
+
+def measurement_frame_distance_grid(
+    d: int,
+    n_out_grid: torch.Tensor | Sequence[int],
+    alpha_grid: torch.Tensor | Sequence[int] | None = None,
+    *,
+    seed: int | None = None,
+    device: torch.device | str = "cpu",
+    dtype: torch.dtype = torch.cdouble,
+) -> MetricResult:
+    """Compatibility alias for povm_frame_distance_grid."""
+    return povm_frame_distance_grid(
+        d,
+        n_out_grid,
+        alpha_grid=alpha_grid,
+        seed=seed,
+        device=device,
+        dtype=dtype,
     )
 
 
