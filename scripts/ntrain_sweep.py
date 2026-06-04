@@ -3,7 +3,7 @@ from pathlib import Path
 from online_qml import *
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--folder", type=Path, default=Path("my-tests/data/ntrain_sweep"))
+parser.add_argument("--folder", type=Path, default=Path("my-data/ntrain_sweep"))
 parser.add_argument("-d", "--dim", type=int, default=2)
 parser.add_argument("-o", "--n-out", type=int, default=16)
 parser.add_argument("-s", "--shots", type=int, default=1)

@@ -3,7 +3,7 @@ from pathlib import Path
 from online_qml import *
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--folder", type=Path, default=Path("my-tests/data/frame_distances"))
+parser.add_argument("--folder", type=Path, default=Path("my-data/frame_distances"))
 parser.add_argument("-d", "--d-grid", nargs="+", type=int, default=[2, 4, 8])
 parser.add_argument("-g", "--gamma-max", type=int, default=10_000)
 parser.add_argument("--gamma-start", type=int, default=1)
