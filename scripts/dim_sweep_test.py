@@ -4,7 +4,7 @@ import torch
 from online_qml import *
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--folder", type=Path, default=Path("my-data/dim_sweep"))
+parser.add_argument("--folder", type=str, default="my-data/dim_sweep")
 parser.add_argument("-f", "--folder-name", type=str, default="d_cube")
 parser.add_argument("-d", "--d-grid", nargs="+", type=int, default=list(range(2, 11)))
 parser.add_argument("--n-out-rule", type=str, default="4*d**2")
@@ -27,7 +27,7 @@ device, rdtype, cdtype = torch_setup(
     verbose=True,
 )
 
-out_dir = args.folder / args.folder_name / f"shots_{args.shots}"
+out_dir = Path(args.folder).expanduser() / args.folder_name / f"shots_{args.shots}"
 out_dir.mkdir(parents=True, exist_ok=True)
 
 n_out_grid = [int(eval(args.n_out_rule, {"d": d})) for d in args.d_grid]

@@ -3,7 +3,7 @@ from pathlib import Path
 from online_qml import *
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--folder", type=Path, default=Path("my-data/ntrain_sweep"))
+parser.add_argument("--folder", type=str, default="my-data/ntrain_sweep")
 parser.add_argument("-d", "--dim", type=int, default=2)
 parser.add_argument("-o", "--n-out", type=int, default=16)
 parser.add_argument("-s", "--shots", type=int, default=1)
@@ -27,7 +27,7 @@ device, rdtype, cdtype = torch_setup(
     verbose=True,
 )
 
-out_dir = args.folder / f"shots_{args.shots}"
+out_dir = Path(args.folder).expanduser() / f"shots_{args.shots}"
 out_dir.mkdir(parents=True, exist_ok=True)
 
 run_metadata = {

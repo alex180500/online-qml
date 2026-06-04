@@ -3,7 +3,7 @@ from pathlib import Path
 from online_qml import *
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--folder", type=Path, default=Path("my-data/frame_distances"))
+parser.add_argument("--folder", type=str, default="my-data/frame_distances")
 parser.add_argument("-d", "--d-grid", nargs="+", type=int, default=[2, 4, 8])
 parser.add_argument("-g", "--gamma-max", type=int, default=10_000)
 parser.add_argument("--gamma-start", type=int, default=1)
@@ -32,7 +32,7 @@ device, rdtype, cdtype = torch_setup(
     verbose=True,
 )
 
-out_dir = args.folder
+out_dir = Path(args.folder).expanduser()
 out_dir.mkdir(parents=True, exist_ok=True)
 
 gamma_grid = logspace_int(args.gamma_start, args.gamma_max, args.gamma_step)
