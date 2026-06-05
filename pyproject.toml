@@ -17,6 +17,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Physics",
 ]
+dependencies = ["pandas>=3.0", "torch>=2.11"]
 
 [project.urls]
 Repository = "https://github.com/alex180500/online-qml"
@@ -32,15 +33,12 @@ dev = [
     "black>=26.5.1",
     "ipykernel>=7.2.0",
     "matplotlib>=3.10.9",
-    "pandas>=3.0.3",
     "pyqt5>=5.15.11",
     "scienceplots>=2.2.1",
 ]
 
 [tool.black]
 target-version = ["py311"]
-
-dependencies = ["numpy>=2.4", "pandas>=3.0", "torch>=2.11"]
 
 [project.optional-dependencies]
 cu126 = ["torch>=2.11"]
