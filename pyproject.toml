@@ -5,22 +5,17 @@ description = "Online quantum machine learning package, using PyTorch."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
-authors = [ { name = "Alessandro Romancino" } ]
+authors = [{ name = "Alessandro Romancino" }]
 keywords = ["quantum", "machine-learning", "shadow-tomography", "pytorch"]
 classifiers = [
-  "Intended Audience :: Science/Research",
-  "Operating System :: OS Independent",
-  "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
-  "Programming Language :: Python :: 3.14",
-  "Topic :: Scientific/Engineering :: Physics"
-]
-dependencies = [
-    "numpy>=2.4",
-    "pandas>=3.0",
-    "torch>=2.11",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Physics",
 ]
 
 [project.urls]
@@ -37,6 +32,7 @@ dev = [
     "black>=26.5.1",
     "ipykernel>=7.2.0",
     "matplotlib>=3.10.9",
+    "pandas>=3.0.3",
     "pyqt5>=5.15.11",
     "scienceplots>=2.2.1",
 ]
@@ -44,33 +40,19 @@ dev = [
 [tool.black]
 target-version = ["py311"]
 
+dependencies = ["numpy>=2.4", "pandas>=3.0", "torch>=2.11"]
+
 [project.optional-dependencies]
-cpu = [
-    "torch>=2.11",
-]
-cu126 = [
-    "torch>=2.11",
-]
-cu128 = [
-    "torch>=2.11",
-]
-cu130 = [
-    "torch>=2.11",
-]
+cu126 = ["torch>=2.11"]
+cu128 = ["torch>=2.11"]
+cu130 = ["torch>=2.11"]
 
 [tool.uv]
-conflicts = [
-    [
-        { extra = "cpu" },
-        { extra = "cu126" },
-        { extra = "cu128" },
-        { extra = "cu130" },
-    ],
-]
+conflicts = [[{ extra = "cu126" }, { extra = "cu128" }, { extra = "cu130" }]]
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cpu", marker = "extra != 'cu126' and extra != 'cu128' and extra != 'cu130'" },
     { index = "pytorch-cu126", extra = "cu126" },
     { index = "pytorch-cu128", extra = "cu128" },
     { index = "pytorch-cu130", extra = "cu130" },
