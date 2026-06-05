@@ -1,6 +1,6 @@
 [project]
 name = "online-qml"
-version = "0.4.0"
+version = "0.4.1"
 description = "Online quantum machine learning package, using PyTorch."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,6 +36,7 @@ dev = [
     "pyqt5>=5.15.11",
     "scienceplots>=2.2.1",
 ]
+cpu = ["torch>=2.11"]
 
 [tool.black]
 target-version = ["py311"]
@@ -46,11 +47,12 @@ cu128 = ["torch>=2.11"]
 cu130 = ["torch>=2.11"]
 
 [tool.uv]
-conflicts = [[{ extra = "cu126" }, { extra = "cu128" }, { extra = "cu130" }]]
+default-groups = ["dev", "cpu"]
+conflicts = [[{ group = "cpu" }, { extra = "cu126" }, { extra = "cu128" }, { extra = "cu130" }]]
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cpu", marker = "extra != 'cu126' and extra != 'cu128' and extra != 'cu130'" },
+    { index = "pytorch-cpu", group = "cpu" },
     { index = "pytorch-cu126", extra = "cu126" },
     { index = "pytorch-cu128", extra = "cu128" },
     { index = "pytorch-cu130", extra = "cu130" },
