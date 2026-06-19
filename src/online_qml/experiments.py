@@ -15,9 +15,11 @@ from .quantum import (
     frame_distance_summary,
     get_observables,
     haar_state_frame,
+    infinite_stats,
     measurement_frame,
     naimark_measurement_frame_prior,
     sample_dm,
+    sample_norm_proj,
     sample_povm,
     shots_outcome,
     state_frame,
@@ -154,6 +156,81 @@ def ntrain_layers(
     )
 
 
+def ntrain_probability_layers(
+    data: SimulationData,
+    observable: torch.Tensor,
+    train_grid: torch.Tensor,
+    methods: Iterable[str],
+    state_prior_frame: torch.Tensor | None = None,
+    pinv_tol: float | int = 1e-10,
+    ridge_alpha: float = 1e-4,
+    dtype: torch.dtype = torch.float64,
+) -> LayerResult:
+    """Generate readout layers along n_train using exact POVM probabilities."""
+    device = data.states.device
+    obs = as_observable_matrix(observable, data.d * data.d).to(device=device)
+    shadow_methods, linear_methods = _split_methods(methods)
+
+    shadow = None
+    if shadow_methods:
+        shadow = ShadowReadoutEstimator(
+            data.n_out,
+            data.d,
+            state_prior_frame=state_prior_frame,
+            device=device,
+            dtype=dtype,
+            methods=shadow_methods,
+        )
+    linear = None
+    if linear_methods:
+        linear = LinearReadoutEstimator(
+            data.n_out, obs.shape[0], device=device, dtype=dtype
+        )
+
+    layers: dict[str, list[torch.Tensor]] = {
+        method: [] for method in [*shadow_methods, *linear_methods]
+    }
+    prev = 0
+    for n_tensor in train_grid:
+        n_train = int(n_tensor.item())
+        states = data.states[:, prev:n_train]
+        probs = infinite_stats(data.povm, states)
+
+        if shadow is not None:
+            shadow.update_probs(probs, states)
+            for method, layer in shadow.layers(obs).items():
+                layers[method].append(layer.detach().clone())
+
+        if linear is not None:
+            targets = get_observables(obs, states).to(device=device, dtype=dtype)
+            linear.update_probs(probs, targets)
+            if "pinv" in linear_methods:
+                layers["pinv"].append(linear.layer_pinv(tol=pinv_tol).detach().clone())
+            if "ridge" in linear_methods:
+                layers["ridge"].append(
+                    linear.layer_ridge(alpha=ridge_alpha).detach().clone()
+                )
+
+        prev = n_train
+
+    return LayerResult(
+        layers={
+            method: torch.stack(values, dim=0) for method, values in layers.items()
+        },
+        observable=obs,
+        train_grid=train_grid.to(device=device),
+        shot_grid=None,
+        seed=data.seed,
+        d=data.d,
+        n_out=data.n_out,
+        metadata={
+            "sweep": "ntrain",
+            "probabilities": "infinite_stats",
+            "methods": list(layers),
+        },
+    )
+
+
 def shot_layers(
     data: SimulationData,
     observable: torch.Tensor,
@@ -272,6 +349,37 @@ def haar_metrics(result: LayerResult, povm: torch.Tensor) -> MetricResult:
     )
 
 
+def mse_metrics(
+    result: LayerResult,
+    povm: torch.Tensor,
+    shots: int | torch.Tensor | None = None,
+) -> MetricResult:
+    """Evaluate a layer result by Haar MSE = bias2 + variance / shots."""
+    if shots is None:
+        if result.shot_grid is None:
+            raise ValueError("shots is required when result.shot_grid is None.")
+        shots = result.shot_grid
+
+    haar = haar_metrics(result, povm)
+    metrics = dict(haar.metrics)
+    for method in result.layers:
+        metrics[f"{method}_mse"] = (
+            metrics[f"{method}_bias2"] + metrics[f"{method}_variance"] / shots
+        )
+    coords = dict(haar.coords)
+    coords.setdefault("shots", shots)
+    return MetricResult(
+        metrics=metrics,
+        train_grid=haar.train_grid,
+        shot_grid=haar.shot_grid,
+        coords=coords,
+        seed=haar.seed,
+        d=haar.d,
+        n_out=haar.n_out,
+        metadata={"metric": "haar_mse", "shots": shots},
+    )
+
+
 def stack_metric_results(
     results: Sequence[MetricResult],
     grid_name: str,
@@ -317,6 +425,140 @@ def stack_metric_results(
         coords=coords,
         seed=results[0].seed,
         metadata={"metric": "stacked", "grid": grid_name},
+    )
+
+
+# ----- PRIOR VALIDITY MSE -----
+
+
+def state_prior_mse_grid(
+    d: int,
+    gamma_grid: torch.Tensor | Sequence[int],
+    alpha: int,
+    shots: int,
+    *,
+    seed: int | None = None,
+    device: torch.device | str = "cpu",
+    dtype: torch.dtype = torch.cdouble,
+    accumulator_dtype: torch.dtype = torch.float64,
+) -> MetricResult:
+    """Compare OST and state-prior OST over a gamma grid."""
+    methods = ("ost", "state_prior_ost")
+    gamma_grid = _int_grid(gamma_grid, device)
+    train_grid = gamma_grid * d * d
+    n_train_max = int(train_grid.max().item())
+    n_out = int(alpha * d * d)
+
+    states = sample_dm(n_train_max, d=d, device=device, dtype=dtype)
+    povm = sample_povm(n_out, d=d, device=device, dtype=dtype)
+    observable = sample_norm_proj(d=d, device=device, dtype=dtype)
+
+    data = SimulationData(states=states, povm=povm, seed=seed)
+    layers = ntrain_probability_layers(
+        data,
+        observable,
+        train_grid,
+        methods=methods,
+        dtype=accumulator_dtype,
+    )
+    mse = mse_metrics(layers, povm, shots).metrics
+
+    metrics = {
+        "mse_ost_value": mse["ost_mse"],
+        "mse_state_prior_ost_value": mse["state_prior_ost_mse"],
+        "excess_state_prior_value": mse["state_prior_ost_mse"] - mse["ost_mse"],
+        "ratio_state_prior_value": mse["state_prior_ost_mse"] / mse["ost_mse"],
+    }
+
+    return MetricResult(
+        metrics=metrics,
+        train_grid=train_grid,
+        coords={
+            "gamma": gamma_grid,
+            "n_train": train_grid,
+            "n_out": n_out,
+            "alpha": alpha,
+            "d": d,
+            "shots": shots,
+        },
+        seed=seed,
+        d=d,
+        n_out=n_out,
+        metadata={"mode": "state", "metric": "prior_validity_mse"},
+    )
+
+
+def povm_prior_mse_grid(
+    d: int,
+    alpha_grid: torch.Tensor | Sequence[int],
+    gamma: int,
+    shots: int,
+    *,
+    seed: int | None = None,
+    device: torch.device | str = "cpu",
+    dtype: torch.dtype = torch.cdouble,
+    accumulator_dtype: torch.dtype = torch.float64,
+) -> MetricResult:
+    """Compare OST, POVM-prior OST, and prior OST over an alpha grid."""
+    methods = ("ost", "povm_prior_ost", "prior_ost")
+    metric_names = (
+        "mse_ost",
+        "mse_povm_prior_ost",
+        "mse_prior_ost",
+        "excess_povm_prior",
+        "excess_prior",
+        "ratio_povm_prior",
+        "ratio_prior",
+    )
+    alpha_grid = _int_grid(alpha_grid, device)
+    n_out_grid = alpha_grid * d * d
+    n_train = int(gamma * d * d)
+
+    states = sample_dm(n_train, d=d, device=device, dtype=dtype)
+    observable = sample_norm_proj(d=d, device=device, dtype=dtype)
+    metrics: dict[str, list[torch.Tensor]] = {
+        f"{metric}_value": [] for metric in metric_names
+    }
+
+    for n_tensor in n_out_grid:
+        n_out = int(n_tensor.item())
+        povm = sample_povm(n_out, d=d, device=device, dtype=dtype)
+        data = SimulationData(states=states, povm=povm, seed=seed)
+        layers = ntrain_probability_layers(
+            data,
+            observable,
+            torch.tensor([n_train], device=device, dtype=torch.int64),
+            methods=methods,
+            dtype=accumulator_dtype,
+        )
+        mse = mse_metrics(layers, povm, shots).metrics
+
+        mse_ost = mse["ost_mse"].reshape(-1)[0]
+        mse_povm_prior = mse["povm_prior_ost_mse"].reshape(-1)[0]
+        mse_prior = mse["prior_ost_mse"].reshape(-1)[0]
+
+        metrics["mse_ost_value"].append(mse_ost)
+        metrics["mse_povm_prior_ost_value"].append(mse_povm_prior)
+        metrics["mse_prior_ost_value"].append(mse_prior)
+        metrics["excess_povm_prior_value"].append(mse_povm_prior - mse_ost)
+        metrics["excess_prior_value"].append(mse_prior - mse_ost)
+        metrics["ratio_povm_prior_value"].append(mse_povm_prior / mse_ost)
+        metrics["ratio_prior_value"].append(mse_prior / mse_ost)
+
+    return MetricResult(
+        metrics={name: torch.stack(values) for name, values in metrics.items()},
+        coords={
+            "alpha": alpha_grid,
+            "n_out": n_out_grid,
+            "n_train": n_train,
+            "gamma": gamma,
+            "d": d,
+            "shots": shots,
+        },
+        seed=seed,
+        d=d,
+        n_out=int(n_out_grid.max().item()),
+        metadata={"mode": "povm", "metric": "prior_validity_mse"},
     )
 
 
