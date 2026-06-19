@@ -58,22 +58,3 @@ def logspace_int(start: int, stop: int, num: int) -> torch.Tensor:
         current = max(current + 1, int(round(float(vals[i]))))
         out[i] = current
     return out
-
-
-def parse_tol(value: str) -> float | int:
-    """Parse a pseudoinverse tolerance or truncation rank."""
-    try:
-        return int(value)
-    except ValueError:
-        return float(value)
-
-
-def check_folder(folder: str | Path, pattern: str, expected: int) -> bool:
-    """Check whether a folder contains the expected number of files."""
-    folder = Path(folder)
-    folder.mkdir(parents=True, exist_ok=True)
-    count = len(list(folder.glob(pattern)))
-    ok = count == expected
-    status = "ok" if ok else "incomplete"
-    print(f"{folder}: {count}/{expected} {pattern} ({status})")
-    return ok

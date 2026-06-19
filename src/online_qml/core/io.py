@@ -30,12 +30,6 @@ def save_json(obj: dict[str, Any], path: str | Path) -> None:
         json.dump(obj, f, indent=2, sort_keys=True)
 
 
-def load_json(path: str | Path) -> dict[str, Any]:
-    """Load JSON metadata."""
-    with Path(path).open("r", encoding="utf-8") as f:
-        return json.load(f)
-
-
 def _as_coord_list(value: Any) -> list[Any]:
     if isinstance(value, torch.Tensor):
         return value.detach().cpu().reshape(-1).tolist()
@@ -101,8 +95,7 @@ def save_metrics(
             coord_columns = [
                 name
                 for name, value in coords.items()
-                if name != grid_column
-                and len(_as_coord_list(value)) in {1, len(grid)}
+                if name != grid_column and len(_as_coord_list(value)) in {1, len(grid)}
             ]
             for name in fixed_columns:
                 if name not in coord_columns:

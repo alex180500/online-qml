@@ -1,7 +1,7 @@
 from math import sqrt
 import torch
 
-from .quantum import as_observable_matrix, get_observables, infinite_stats, sample_dm
+from .quantum import as_observable_matrix
 
 # ----- HAAR BIAS AND VARIANCE -----
 
@@ -102,98 +102,3 @@ def evaluate_layers_haar(
             for key, seq in vals.items():
                 out[f"{method}_{key}"] = torch.stack(seq).reshape(layer.shape[:-2])
     return out
-
-
-# ----- BETA FITS -----
-
-
-def fit_beta_coefficients(
-    mse: torch.Tensor,
-    shot_grid: torch.Tensor,
-    train_grid: torch.Tensor,
-    mask: torch.Tensor | None = None,
-) -> dict[str, torch.Tensor]:
-    """Fit beta0 + beta1/(N n) + beta2/n to MSE values.
-
-    Args:
-        mse (torch.Tensor): MSE matrix with shape (n_shots_grid, n_train_grid).
-        shot_grid (torch.Tensor): Shot values with shape (n_shots_grid,).
-        train_grid (torch.Tensor): Training-state values with shape (n_train_grid,).
-        mask (torch.Tensor | None): Boolean fit mask with shape (n_shots_grid, n_train_grid).
-
-    Returns:
-        dict[str, torch.Tensor]: beta0, beta1, beta2 and residual scalars.
-    """
-    shots = shot_grid.to(dtype=mse.dtype, device=mse.device)
-    trains = train_grid.to(dtype=mse.dtype, device=mse.device)
-    s_grid, n_grid = torch.meshgrid(shots, trains, indexing="ij")
-    x = torch.stack(
-        [
-            torch.ones_like(s_grid),
-            1.0 / (s_grid * n_grid),
-            1.0 / n_grid,
-        ],
-        dim=-1,
-    )
-    y = mse
-    if mask is not None:
-        x = x[mask]
-        y = y[mask]
-    else:
-        x = x.reshape(-1, 3)
-        y = y.reshape(-1)
-    sol = torch.linalg.lstsq(x, y).solution
-    residual = torch.mean((x @ sol - y) ** 2)
-    return {
-        "beta0": sol[0],
-        "beta1": sol[1],
-        "beta2": sol[2],
-        "fit_residual": residual,
-    }
-
-
-# ----- PREDICTION GEOMETRY -----
-
-
-def prediction_geometry(
-    layer: torch.Tensor,
-    povm: torch.Tensor,
-    observable: torch.Tensor,
-    states: int | torch.Tensor = 10000,
-) -> dict[str, torch.Tensor]:
-    """Compute true-vs-predicted calibration diagnostics.
-
-    Args:
-        layer (torch.Tensor): Readout layer with shape (1, n_out).
-        povm (torch.Tensor): Flattened POVM elements with shape (n_out, d^2).
-        observable (torch.Tensor): Observable with shape (1, d^2) or (d^2,).
-        states (int | torch.Tensor): Number of Haar test states or states with shape (d^2, n_states).
-
-    Returns:
-        dict[str, torch.Tensor]: True values, predictions, slope, intercept, Pearson r and MSE.
-    """
-    d = int(round(povm.shape[1] ** 0.5))
-    obs = as_observable_matrix(observable, povm.shape[1]).to(
-        device=povm.device, dtype=povm.dtype
-    )
-    if isinstance(states, int):
-        states = sample_dm(states, d=d, device=povm.device, dtype=povm.dtype)
-    else:
-        states = states.to(device=povm.device, dtype=povm.dtype)
-    probs = infinite_stats(povm, states)
-    true = get_observables(obs, states).reshape(-1)
-    pred = torch.matmul(layer, probs).real.reshape(-1)
-    x = true - true.mean()
-    y = pred - pred.mean()
-    slope = torch.sum(x * y) / torch.sum(x * x)
-    intercept = pred.mean() - slope * true.mean()
-    pearson = torch.sum(x * y) / torch.sqrt(torch.sum(x * x) * torch.sum(y * y))
-    mse = torch.mean((pred - true) ** 2)
-    return {
-        "true": true,
-        "pred": pred,
-        "slope": slope,
-        "intercept": intercept,
-        "pearson": pearson,
-        "mse": mse,
-    }

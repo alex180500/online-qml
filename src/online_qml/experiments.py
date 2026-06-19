@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 import torch
 
@@ -9,7 +9,7 @@ from .estimators import (
     RunningOutcomeStats,
     ShadowReadoutEstimator,
 )
-from .evaluation import evaluate_layers_haar, fit_beta_coefficients
+from .evaluation import evaluate_layers_haar
 from .quantum import (
     as_observable_matrix,
     frame_distance_summary,
@@ -380,54 +380,6 @@ def mse_metrics(
     )
 
 
-def stack_metric_results(
-    results: Sequence[MetricResult],
-    grid_name: str,
-    grid_values: torch.Tensor,
-    extra_coords: Mapping[str, Any] | None = None,
-) -> MetricResult:
-    """Stack single-point metric results into one metric grid."""
-    if len(results) != int(grid_values.numel()):
-        raise ValueError("Number of metric results must match grid_values.")
-
-    device = grid_values.device
-    metric_keys = tuple(results[0].metrics)
-    metrics: dict[str, torch.Tensor] = {}
-    for key in metric_keys:
-        values = []
-        for result in results:
-            if key not in result.metrics:
-                raise ValueError(f"Metric result is missing '{key}'.")
-            value = result.metrics[key].detach().reshape(-1)[0].to(device=device)
-            values.append(value)
-        metrics[key] = torch.stack(values)
-
-    coords: dict[str, Any] = {grid_name: grid_values}
-    for name, value in dict(extra_coords or {}).items():
-        if isinstance(value, torch.Tensor):
-            coords[name] = value.to(device=device)
-        elif isinstance(value, list | tuple):
-            coords[name] = torch.tensor(value, device=device)
-        else:
-            coords[name] = value
-
-    train_grid = coords.get("n_train")
-    if not isinstance(train_grid, torch.Tensor):
-        train_grid = None
-    shot_grid = coords.get("shots")
-    if not isinstance(shot_grid, torch.Tensor):
-        shot_grid = None
-
-    return MetricResult(
-        metrics=metrics,
-        train_grid=train_grid,
-        shot_grid=shot_grid,
-        coords=coords,
-        seed=results[0].seed,
-        metadata={"metric": "stacked", "grid": grid_name},
-    )
-
-
 # ----- PRIOR VALIDITY MSE -----
 
 
@@ -636,21 +588,6 @@ def povm_frame_distances(
     return {f"povm_{key}": torch.stack(vals) for key, vals in out.items()}
 
 
-def measurement_frame_distances(
-    d: int,
-    n_out_grid: torch.Tensor,
-    device: torch.device | str = "cpu",
-    dtype: torch.dtype = torch.cdouble,
-) -> dict[str, torch.Tensor]:
-    """Compatibility alias for povm_frame_distances."""
-    return povm_frame_distances(
-        d,
-        n_out_grid,
-        device=device,
-        dtype=dtype,
-    )
-
-
 def _int_grid(
     values: torch.Tensor | Sequence[int],
     device: torch.device | str,
@@ -722,56 +659,3 @@ def povm_frame_distance_grid(
         d=d,
         metadata={"metric": "frame_distance", "frame": "povm"},
     )
-
-
-def measurement_frame_distance_grid(
-    d: int,
-    n_out_grid: torch.Tensor | Sequence[int],
-    alpha_grid: torch.Tensor | Sequence[int] | None = None,
-    *,
-    seed: int | None = None,
-    device: torch.device | str = "cpu",
-    dtype: torch.dtype = torch.cdouble,
-) -> MetricResult:
-    """Compatibility alias for povm_frame_distance_grid."""
-    return povm_frame_distance_grid(
-        d,
-        n_out_grid,
-        alpha_grid=alpha_grid,
-        seed=seed,
-        device=device,
-        dtype=dtype,
-    )
-
-
-# ----- BETA FITS -----
-
-
-def fit_betas(
-    metrics: dict[str, torch.Tensor],
-    shot_grid: torch.Tensor,
-    train_grid: torch.Tensor,
-    methods: Iterable[str],
-    metric_name: str = "bias2",
-) -> dict[str, torch.Tensor]:
-    """Fit beta coefficients for several methods.
-
-    Args:
-        metrics (dict[str, torch.Tensor]): Metric tensors keyed as method_metric.
-        shot_grid (torch.Tensor): Shot values with shape (n_shot_grid,).
-        train_grid (torch.Tensor): Training-state values with shape (n_train_grid,).
-        methods (Iterable[str]): Method names.
-        metric_name (str): Metric suffix to fit.
-
-    Returns:
-        dict[str, torch.Tensor]: Beta coefficients keyed as method_beta.
-    """
-    out: dict[str, torch.Tensor] = {}
-    for method in methods:
-        key = f"{method}_{metric_name}"
-        if key not in metrics:
-            continue
-        fit = fit_beta_coefficients(metrics[key], shot_grid, train_grid)
-        for beta_key, value in fit.items():
-            out[f"{method}_{beta_key}"] = value
-    return out
