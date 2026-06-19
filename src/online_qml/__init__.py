@@ -27,41 +27,37 @@ from .estimators import (
 from .evaluation import (
     HaarBiasVariance,
     evaluate_layers_haar,
+    haar_metrics,
 )
 from .experiments import (
-    haar_metrics,
-    mse_metrics,
     ntrain_layers,
-    ntrain_probability_layers,
-    povm_prior_mse_grid,
-    povm_frame_distance_grid,
-    povm_frame_distances,
     sample_data,
     shot_layers,
-    state_prior_mse_grid,
+)
+from .frames import (
+    frame_distance_summary,
+    frame_relative_spectrum,
+    haar_state_frame,
+    measurement_frame,
+    naimark_measurement_frame_prior,
+    povm_frame_distance_grid,
+    povm_frame_distances,
+    state_frame,
     state_frame_distance_grid,
     state_frame_distances,
+    trace_superoperator,
+    vec_identity,
 )
 from .quantum import (
     as_observable_matrix,
-    frame_distance_summary,
-    frame_relative_spectrum,
     get_observables,
-    haar_state_frame,
-    haar_projector_variance,
     infinite_stats,
-    measurement_frame,
-    naimark_measurement_frame_prior,
     sample_dm,
-    sample_norm_proj,
     sample_povm,
     sample_states,
     sample_unitary,
     shots_outcome,
     shots_to_statistics,
-    state_frame,
-    trace_superoperator,
-    vec_identity,
 )
 
 try:
@@ -91,7 +87,6 @@ __all__ = [
     # Quantum state, observable and POVM utilities.
     "sample_states",
     "sample_dm",
-    "sample_norm_proj",
     "as_observable_matrix",
     "get_observables",
     "sample_unitary",
@@ -108,10 +103,10 @@ __all__ = [
     "measurement_frame",
     "frame_relative_spectrum",
     "frame_distance_summary",
-    "haar_projector_variance",
     # Evaluation helpers.
     "HaarBiasVariance",
     "evaluate_layers_haar",
+    "haar_metrics",
     # Estimators and helpers.
     "pinv_truncated",
     "ShadowReadoutEstimator",
@@ -120,12 +115,7 @@ __all__ = [
     # Experiment helpers.
     "sample_data",
     "ntrain_layers",
-    "ntrain_probability_layers",
     "shot_layers",
-    "haar_metrics",
-    "mse_metrics",
-    "state_prior_mse_grid",
-    "povm_prior_mse_grid",
     "state_frame_distance_grid",
     "state_frame_distances",
     "povm_frame_distance_grid",

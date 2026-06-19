@@ -3,11 +3,11 @@ import torch
 
 from .core.internals import complex_dtype
 from .core.methods import shadow_method_flags
+from .frames import vec_identity
 from .quantum import (
     as_observable_matrix,
     get_observables,
     shots_to_statistics,
-    vec_identity,
 )
 
 # ----- HELPERS -----

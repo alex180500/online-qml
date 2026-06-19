@@ -1,6 +1,7 @@
 from math import sqrt
 import torch
 
+from .core.containers import LayerResult, MetricResult
 from .quantum import as_observable_matrix
 
 # ----- HAAR BIAS AND VARIANCE -----
@@ -102,3 +103,29 @@ def evaluate_layers_haar(
             for key, seq in vals.items():
                 out[f"{method}_{key}"] = torch.stack(seq).reshape(layer.shape[:-2])
     return out
+
+
+def haar_metrics(result: LayerResult, povm: torch.Tensor) -> MetricResult:
+    """Evaluate a layer result by Haar bias and variance.
+
+    Args:
+        result (LayerResult): Layer result with layers (..., n_obs, n_out).
+        povm (torch.Tensor): Flattened POVM elements with shape (n_out, d^2).
+
+    Returns:
+        MetricResult: Haar metrics with shapes matching the layer grid.
+    """
+    metrics = evaluate_layers_haar(result.layers, povm, result.observable)
+    coords = {"n_train": result.train_grid}
+    if result.shot_grid is not None:
+        coords["shots"] = result.shot_grid
+    return MetricResult(
+        metrics=metrics,
+        train_grid=result.train_grid,
+        shot_grid=result.shot_grid,
+        coords=coords,
+        seed=result.seed,
+        d=result.d,
+        n_out=result.n_out,
+        metadata={"metric": "haar_bias_variance"},
+    )
