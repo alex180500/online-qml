@@ -12,6 +12,7 @@ parser.add_argument("--shot-start", type=int, default=1)
 parser.add_argument("--shot-step", type=int, default=40)
 parser.add_argument("--nseeds", type=int, default=3)
 parser.add_argument("--methods", nargs="+", default=training_methods)
+parser.add_argument("--obs", choices=("proj", "center", "center_norm"), default="proj")
 parser.add_argument("--pinv-tol", type=float, default=1e-10)
 parser.add_argument("--ridge-alpha", type=float, default=1e-4)
 parser.add_argument("--device", type=str, default="cpu")
@@ -40,6 +41,7 @@ run_metadata = {
     "shot_step": args.shot_step,
     "nseeds": args.nseeds,
     "methods": args.methods,
+    "observable": args.obs,
     "precision": args.precision,
     "seeds": [random_seed() for _ in range(args.nseeds)],
 }
@@ -64,7 +66,13 @@ for seed_id in range(args.nseeds):
         dtype=cdtype,
     )
 
-    observable = sample_dm(1, d=args.dim, device=device, dtype=cdtype).adjoint()
+    observable = sample_observable(
+        1,
+        d=args.dim,
+        kind=args.obs,
+        device=device,
+        dtype=cdtype,
+    )
     result, layer_time = timed(
         shot_layers,
         data,

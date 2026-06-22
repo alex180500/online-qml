@@ -46,6 +46,48 @@ def sample_dm(
     return density.reshape(d * d, n_states)
 
 
+def sample_observable(
+    n_obs: int = 1,
+    d: int = 2,
+    kind: str = "proj",
+    device: torch.device | str = "cpu",
+    dtype: torch.dtype = torch.cfloat,
+) -> torch.Tensor:
+    """Sample Hermitian-conjugated flattened observable rows.
+
+    Args:
+        n_obs (int): Number of observables.
+        d (int): Hilbert-space dimension.
+        kind (str): Observable type. ``"proj"`` samples ``|phi><phi|``;
+            ``"center"`` samples the centered projector ``|phi><phi| - I / d``;
+            ``"center_norm"`` additionally divides by
+            ``sqrt((d - 1) / (d^2 * (d + 1)))``.
+        device (torch.device | str): Output device.
+        dtype (torch.dtype): Complex output dtype.
+
+    Returns:
+        torch.Tensor: Hermitian-conjugated flattened observable rows with shape
+            (n_obs, d^2). ``obs @ mat`` computes the linear product.
+    """
+    obs = sample_dm(n_obs, d=d, device=device, dtype=dtype).adjoint()
+    if kind == "proj":
+        return obs
+    if kind not in {"center", "center_norm"}:
+        raise ValueError(
+            "observable kind must be 'proj', 'center', or 'center_norm'; "
+            f"got {kind!r}."
+        )
+
+    identity = torch.eye(d, device=device, dtype=dtype).reshape(1, d * d)
+    obs = obs - identity / d
+    if kind == "center":
+        return obs
+    if d <= 1:
+        raise ValueError("center_norm observable requires d > 1.")
+    haar_std = ((d - 1) / (d * d * (d + 1))) ** 0.5
+    return obs / haar_std
+
+
 def as_observable_matrix(observable: torch.Tensor, d2: int) -> torch.Tensor:
     """Convert observables to Hermitian-conjugated row format.
 

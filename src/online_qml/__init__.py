@@ -53,6 +53,7 @@ from .quantum import (
     get_observables,
     infinite_stats,
     sample_dm,
+    sample_observable,
     sample_povm,
     sample_states,
     sample_unitary,
@@ -87,6 +88,7 @@ __all__ = [
     # Quantum state, observable and POVM utilities.
     "sample_states",
     "sample_dm",
+    "sample_observable",
     "as_observable_matrix",
     "get_observables",
     "sample_unitary",

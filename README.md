@@ -85,13 +85,18 @@ carry the `uv` source-index routing from this repository.
 
 ```python
 import torch
-from online_qml.quantum import sample_dm, sample_povm, shots_outcome
 from online_qml.estimators import ShadowReadoutEstimator
+from online_qml.quantum import (
+    sample_dm,
+    sample_observable,
+    sample_povm,
+    shots_outcome,
+)
 
 states = sample_dm(1000, d=2, dtype=torch.cdouble)
 povm = sample_povm(16, d=2, dtype=torch.cdouble)
 outcomes = shots_outcome(povm, states, shots=1)
-obs = sample_dm(1, d=2, dtype=torch.cdouble).adjoint()
+obs = sample_observable(1, d=2, kind="proj", dtype=torch.cdouble)
 
 est = ShadowReadoutEstimator(
     n_out=16,
