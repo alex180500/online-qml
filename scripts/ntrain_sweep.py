@@ -64,7 +64,7 @@ for seed_id in range(args.nseeds):
         dtype=cdtype,
     )
 
-    observable = sample_dm(1, d=args.dim, device=device, dtype=cdtype).T
+    observable = sample_dm(1, d=args.dim, device=device, dtype=cdtype).adjoint()
     result, layer_time = timed(
         ntrain_layers,
         data,

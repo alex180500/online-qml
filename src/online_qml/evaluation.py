@@ -12,7 +12,9 @@ class HaarBiasVariance:
 
     Args:
         povm (torch.Tensor): Flattened POVM elements with shape (n_out, d^2).
-        observable (torch.Tensor): Flattened observable with shape (1, d^2) or (d^2,).
+        observable (torch.Tensor): Hermitian-conjugated flattened observable row
+            with shape (1, d^2) or (d^2,). With flattened matrices stored as
+            columns, ``obs @ mat`` is the linear product.
     """
 
     def __init__(self, povm: torch.Tensor, observable: torch.Tensor):
@@ -36,7 +38,9 @@ class HaarBiasVariance:
         d = int(sqrt(d2))
         self.coeff = 1.0 / (d * (d + 1))
         mu = self.povm.reshape(n_out, d, d)
-        obs = self.observable.reshape(d, d)
+        # Observables are stored as row functionals; reconstruct the matrix used
+        # in the Haar contractions.
+        obs = self.observable.conj().reshape(d, d)
         tr_mu = torch.einsum("aii->a", mu)
         tr_mu_mu = torch.einsum("aij,bji->ab", mu, mu)
         self.tr_mu_over_d = tr_mu.real / d
@@ -78,7 +82,9 @@ def evaluate_layers_haar(
     Args:
         layers (dict[str, torch.Tensor]): Layers with shape (1, n_out) or (..., 1, n_out).
         povm (torch.Tensor): Flattened POVM elements with shape (n_out, d^2).
-        observable (torch.Tensor): Observable with shape (1, d^2) or (d^2,).
+        observable (torch.Tensor): Hermitian-conjugated flattened observable row
+            with shape (1, d^2) or (d^2,). With flattened matrices stored as
+            columns, ``obs @ mat`` is the linear product.
 
     Returns:
         dict[str, torch.Tensor]: Metric tensors keyed as method_metric.

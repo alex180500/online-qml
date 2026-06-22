@@ -73,7 +73,10 @@ def ntrain_layers(
 
     Args:
         data (SimulationData): Simulation data with states (d^2, n_states), povm (n_out, d^2), and outcomes (n_states, n_shots_max).
-        observable (torch.Tensor): Observables with shape (n_obs, d^2), (d^2, n_obs), or (d^2,).
+        observable (torch.Tensor): Hermitian-conjugated flattened observable rows
+            with shape (n_obs, d^2), their transpose with shape (d^2, n_obs),
+            or one row with shape (d^2,). With flattened matrices stored as
+            columns, ``obs @ mat`` is the linear product.
         train_grid (torch.Tensor): Increasing training sizes with shape (n_train_grid,).
         n_shots (int): Number of training shots per state.
         methods (Iterable[str]): Method names.
@@ -162,7 +165,10 @@ def shot_layers(
 
     Args:
         data (SimulationData): Simulation data with states (d^2, n_states), povm (n_out, d^2), and outcomes (n_states, n_shots_max).
-        observable (torch.Tensor): Observables with shape (n_obs, d^2), (d^2, n_obs), or (d^2,).
+        observable (torch.Tensor): Hermitian-conjugated flattened observable rows
+            with shape (n_obs, d^2), their transpose with shape (d^2, n_obs),
+            or one row with shape (d^2,). With flattened matrices stored as
+            columns, ``obs @ mat`` is the linear product.
         shot_grid (torch.Tensor): Increasing shot values with shape (n_shot_grid,).
         n_train (int): Number of training states.
         methods (Iterable[str]): Method names.
@@ -183,7 +189,7 @@ def shot_layers(
 
     states = data.states[:, :n_train]
     outcomes = data.outcomes[:n_train]
-    targets = get_observables(obs, states).to(device=device, dtype=dtype)
+    targets = get_observables(obs, states, device=device, dtype=dtype)
     stats = RunningOutcomeStats(data.n_out, n_train, device=device, dtype=dtype)
     layers: dict[str, list[torch.Tensor]] = {
         method: [] for method in [*shadow_methods, *linear_methods]

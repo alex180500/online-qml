@@ -47,14 +47,17 @@ def sample_dm(
 
 
 def as_observable_matrix(observable: torch.Tensor, d2: int) -> torch.Tensor:
-    """Convert observables to row format.
+    """Convert observables to Hermitian-conjugated row format.
 
     Args:
-        observable (torch.Tensor): Observable with shape (d^2,), (n_obs, d^2), or (d^2, n_obs).
+        observable (torch.Tensor): Hermitian-conjugated flattened observable rows
+            with shape (d^2,) or (n_obs, d^2), or the transpose of those rows
+            with shape (d^2, n_obs). These rows are linear functionals:
+            ``obs @ mat`` computes the product.
         d2 (int): Squared Hilbert-space dimension.
 
     Returns:
-        torch.Tensor: Observable matrix with shape (n_obs, d^2).
+        torch.Tensor: Hermitian-conjugated observable matrix with shape (n_obs, d^2).
     """
     if observable.ndim == 1:
         return observable.reshape(1, d2)
@@ -63,21 +66,39 @@ def as_observable_matrix(observable: torch.Tensor, d2: int) -> torch.Tensor:
     if observable.ndim == 2 and observable.shape[1] == d2:
         return observable
     raise ValueError(
-        f"observable must have shape (d^2,), (n_obs, d^2), or (d^2, n_obs); got {tuple(observable.shape)}."
+        "observable must contain Hermitian-conjugated rows with shape "
+        f"(d^2,), (n_obs, d^2), or (d^2, n_obs); got {tuple(observable.shape)}."
     )
 
 
-def get_observables(obs_matrix: torch.Tensor, states: torch.Tensor) -> torch.Tensor:
-    """Compute observable expectation values.
+def get_observables(
+    obs_matrix: torch.Tensor,
+    states: torch.Tensor,
+    *,
+    device: torch.device | str | None = None,
+    dtype: torch.dtype | None = None,
+) -> torch.Tensor:
+    """Compute observable expectation values as ``obs @ states``.
 
     Args:
-        obs_matrix (torch.Tensor): Flattened observables with shape (n_obs, d^2).
+        obs_matrix (torch.Tensor): Hermitian-conjugated flattened observable rows
+            with shape (n_obs, d^2). No conjugation is applied here.
         states (torch.Tensor): Flattened density matrices with shape (d^2, n_states).
+        device (torch.device | str | None): Optional output device.
+        dtype (torch.dtype | None): Optional output real dtype.
 
     Returns:
         torch.Tensor: Expectation matrix with shape (n_obs, n_states).
     """
-    return torch.matmul(obs_matrix.conj(), states).real
+    values = torch.matmul(obs_matrix, states).real
+    if device is None and dtype is None:
+        return values
+    to_kwargs = {}
+    if device is not None:
+        to_kwargs["device"] = device
+    if dtype is not None:
+        to_kwargs["dtype"] = dtype
+    return values.to(**to_kwargs)
 
 
 # ----- POVMS AND STATISTICS -----

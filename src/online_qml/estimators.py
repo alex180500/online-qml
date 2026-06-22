@@ -253,7 +253,10 @@ class ShadowReadoutEstimator:
         """Compute one readout layer.
 
         Args:
-            observable (torch.Tensor): Observables with shape (n_obs, d^2), (d^2, n_obs), or (d^2,).
+            observable (torch.Tensor): Hermitian-conjugated flattened observable
+                rows with shape (n_obs, d^2), their transpose with shape
+                (d^2, n_obs), or one row with shape (d^2,). With flattened
+                matrices stored as columns, ``obs @ mat`` is the linear product.
             use_state_prior (bool): If True, use prior F_rho.
             use_povm_prior (bool): If True, use prior F_mu.
             rcond_state (float): Pseudoinverse cutoff for F_rho.
@@ -267,7 +270,7 @@ class ShadowReadoutEstimator:
         )
         povm = self.estimated_povm(use_state_prior=use_state_prior, rcond=rcond_state)
         dual = self.dual_frame(povm, use_povm_prior=use_povm_prior, rcond=rcond_frame)
-        return torch.matmul(obs.conj(), dual).real.to(dtype=self.dtype)
+        return torch.matmul(obs, dual).real.to(dtype=self.dtype)
 
     def layers(
         self,
@@ -279,7 +282,10 @@ class ShadowReadoutEstimator:
         """Compute several shadow readout layers.
 
         Args:
-            observable (torch.Tensor): Observables with shape (n_obs, d^2), (d^2, n_obs), or (d^2,).
+            observable (torch.Tensor): Hermitian-conjugated flattened observable
+                rows with shape (n_obs, d^2), their transpose with shape
+                (d^2, n_obs), or one row with shape (d^2,). With flattened
+                matrices stored as columns, ``obs @ mat`` is the linear product.
             methods (Iterable[str] | None): Shadow method names. If None, use the methods configured on the estimator.
             rcond_state (float): Pseudoinverse cutoff for F_rho.
             rcond_frame (float): Pseudoinverse cutoff for F_mu.
@@ -310,7 +316,7 @@ class ShadowReadoutEstimator:
                 use_povm_prior=use_povm_prior,
                 rcond=rcond_frame,
             )
-            out[method] = torch.matmul(obs.conj(), dual).real.to(dtype=self.dtype)
+            out[method] = torch.matmul(obs, dual).real.to(dtype=self.dtype)
         return out
 
 
@@ -383,7 +389,9 @@ class LinearReadoutEstimator:
         Args:
             outcomes (torch.Tensor): Outcome matrix with shape (n_batch, n_shots).
             states (torch.Tensor): Flattened density matrices with shape (d^2, n_batch).
-            observable (torch.Tensor): Observables with shape (n_obs, d^2).
+            observable (torch.Tensor): Hermitian-conjugated flattened observable
+                rows with shape (n_obs, d^2). With flattened matrices stored as
+                columns, ``obs @ mat`` is the linear product.
             n_out (int | None): Number of POVM outcomes.
         """
         if n_out is None:
@@ -392,7 +400,7 @@ class LinearReadoutEstimator:
             device=self.device, dtype=self.dtype
         )
         obs = as_observable_matrix(observable, states.shape[0])
-        targets = get_observables(obs, states).to(device=self.device, dtype=self.dtype)
+        targets = get_observables(obs, states, device=self.device, dtype=self.dtype)
         self.update_probs(probs, targets)
 
     def layer_pinv(self, tol: float | int = 1e-10) -> torch.Tensor:

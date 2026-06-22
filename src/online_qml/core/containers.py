@@ -37,7 +37,9 @@ class LayerResult:
 
     Args:
         layers (dict[str, torch.Tensor]): Readout layers with shape (..., n_obs, n_out).
-        observable (torch.Tensor): Observables with shape (n_obs, d^2).
+        observable (torch.Tensor): Hermitian-conjugated flattened observable rows
+            with shape (n_obs, d^2). With flattened matrices stored as columns,
+            ``obs @ mat`` is the linear product.
         train_grid (torch.Tensor): Training-state grid with shape (n_train_grid,).
         shot_grid (torch.Tensor | None): Shot grid with shape (n_shot_grid,) or None.
         seed (int | None): Random seed used to generate the data.
