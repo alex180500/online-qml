@@ -41,7 +41,7 @@ run_metadata = {
     "train_step": args.train_step,
     "nseeds": args.nseeds,
     "methods": args.methods,
-    "observable": args.observable,
+    "observable": args.obs,
     "precision": args.precision,
     "seeds": [random_seed() for _ in range(args.nseeds)],
 }
@@ -69,7 +69,7 @@ for seed_id in range(args.nseeds):
     observable = sample_observable(
         1,
         d=args.dim,
-        kind=args.observable,
+        kind=args.obs,
         device=device,
         dtype=cdtype,
     )
