@@ -12,7 +12,6 @@ from .evaluation import evaluate_layers_haar
 from .quantum import (
     as_observable_matrix,
     get_observables,
-    infinite_stats,
     sample_dm,
     sample_povm,
     shots_outcome,
@@ -66,7 +65,6 @@ def ntrain_layers(
     train_grid: torch.Tensor,
     n_shots: int,
     methods: Iterable[str],
-    state_prior_frame: torch.Tensor | None = None,
     pinv_tol: float | int = 1e-10,
     ridge_alpha: float = 1e-4,
     dtype: torch.dtype = torch.float64,
@@ -82,7 +80,6 @@ def ntrain_layers(
         train_grid (torch.Tensor): Increasing training sizes with shape (n_train_grid,).
         n_shots (int): Number of training shots per state.
         methods (Iterable[str]): Method names.
-        state_prior_frame (torch.Tensor | None): Optional prior state frame with shape (d^2, d^2).
         pinv_tol (float | int): Pseudoinverse tolerance or truncation rank.
         ridge_alpha (float): Ridge regularization parameter.
         dtype (torch.dtype): Real accumulator dtype.
@@ -102,7 +99,6 @@ def ntrain_layers(
         shadow = ShadowReadoutEstimator(
             data.n_out,
             data.d,
-            state_prior_frame=state_prior_frame,
             device=device,
             dtype=dtype,
             methods=shadow_methods,
@@ -158,7 +154,6 @@ def shot_layers(
     shot_grid: torch.Tensor,
     n_train: int,
     methods: Iterable[str],
-    state_prior_frame: torch.Tensor | None = None,
     pinv_tol: float | int = 1e-10,
     ridge_alpha: float = 1e-4,
     dtype: torch.dtype = torch.float64,
@@ -174,7 +169,6 @@ def shot_layers(
         shot_grid (torch.Tensor): Increasing shot values with shape (n_shot_grid,).
         n_train (int): Number of training states.
         methods (Iterable[str]): Method names.
-        state_prior_frame (torch.Tensor | None): Optional prior state frame with shape (d^2, d^2).
         pinv_tol (float | int): Pseudoinverse tolerance or truncation rank.
         ridge_alpha (float): Ridge regularization parameter.
         dtype (torch.dtype): Real accumulator dtype.
@@ -207,7 +201,6 @@ def shot_layers(
             shadow = ShadowReadoutEstimator(
                 data.n_out,
                 data.d,
-                state_prior_frame=state_prior_frame,
                 device=device,
                 dtype=dtype,
                 methods=shadow_methods,
@@ -245,20 +238,17 @@ def shot_layers(
 
 
 def nout_metrics(
-    states: torch.Tensor,
+    n_train: int,
+    d: int,
     observable: torch.Tensor,
     alpha_grid: torch.Tensor,
     n_out_grid: torch.Tensor,
     shots: int,
     methods: Iterable[str],
-    batch_size: int,
-    rcond_state: float = 1e-10,
-    rcond_frame: float = 1e-10,
-    dtype: torch.dtype = torch.float64,
-    *,
-    seed: int | None = None,
     pinv_tol: float | int = 1e-10,
     ridge_alpha: float = 1e-4,
+    dtype: torch.dtype = torch.float64,
+    seed: int | None = None,
 ) -> MetricResult:
     """Evaluate Haar metrics along a changing n_out grid.
 
@@ -266,17 +256,19 @@ def nout_metrics(
     final dimension changes with n_out, so this helper evaluates each layer
     immediately and returns only the metric grid.
     """
-    if batch_size <= 0:
-        raise ValueError("batch_size must be positive.")
+    if n_train <= 0:
+        raise ValueError("n_train must be positive.")
+    if shots <= 0:
+        raise ValueError("nout_metrics requires a positive finite number of shots.")
 
-    d = int(round(states.shape[0] ** 0.5))
-    device = states.device
+    device = observable.device
     alpha_grid = torch.as_tensor(alpha_grid, device=device, dtype=torch.int64)
     n_out_grid = torch.as_tensor(n_out_grid, device=device, dtype=torch.int64)
     if alpha_grid.numel() != n_out_grid.numel():
         raise ValueError("alpha_grid and n_out_grid must have the same length.")
 
     obs = as_observable_matrix(observable, d * d).to(device=device)
+    cdtype = obs.dtype
     methods = list(methods)
     shadow_methods, linear_methods = _split_methods(methods)
     out = {
@@ -288,7 +280,15 @@ def nout_metrics(
     for alpha_tensor, n_out_tensor in zip(alpha_grid, n_out_grid, strict=True):
         alpha = int(alpha_tensor.item())
         n_out = int(n_out_tensor.item())
-        povm = sample_povm(n_out, d=d, device=device, dtype=states.dtype)
+        data = sample_data(
+            n_train,
+            d=d,
+            n_out=n_out,
+            shots=shots,
+            seed=seed,
+            device=device,
+            dtype=cdtype,
+        )
         shadow = None
         if shadow_methods:
             shadow = ShadowReadoutEstimator(
@@ -304,43 +304,25 @@ def nout_metrics(
                 n_out, obs.shape[0], device=device, dtype=dtype
             )
 
-        for start in range(0, states.shape[1], batch_size):
-            stop = min(start + batch_size, states.shape[1])
-            state_batch = states[:, start:stop]
-            if shots <= 0:
-                probs = infinite_stats(povm, state_batch)
-                if shadow is not None:
-                    shadow.update_probs(probs, state_batch)
-                if linear is not None:
-                    targets = get_observables(
-                        obs, state_batch, device=device, dtype=dtype
-                    )
-                    linear.update_probs(probs, targets)
-            else:
-                outcomes = shots_outcome(povm, state_batch, shots)
-                if shadow is not None:
-                    shadow.update(outcomes, state_batch)
-                if linear is not None:
-                    linear.update_outcomes(outcomes, state_batch, obs, n_out)
+        outcomes = data.outcomes
+        if outcomes is None:
+            raise RuntimeError("sample_data returned no outcomes.")
+        if shadow is not None:
+            shadow.update(outcomes, data.states)
+        if linear is not None:
+            linear.update_outcomes(outcomes, data.states, obs, data.n_out)
 
         layers: dict[str, torch.Tensor] = {}
         if shadow is not None:
-            layers.update(
-                shadow.layers(
-                    obs,
-                    rcond_state=rcond_state,
-                    rcond_frame=rcond_frame,
-                )
-            )
+            layers.update(shadow.layers(obs))
         if linear is not None:
             if "pinv" in linear_methods:
                 layers["pinv"] = linear.layer_pinv(tol=pinv_tol).detach().clone()
             if "ridge" in linear_methods:
                 layers["ridge"] = linear.layer_ridge(alpha=ridge_alpha).detach().clone()
-        metrics = evaluate_layers_haar(layers, povm, obs)
+        metrics = evaluate_layers_haar(layers, data.povm, obs)
         for key in out:
             out[key].append(metrics[key].detach().clone())
-
         print(f"    alpha={alpha} n_out={n_out} done")
 
     return MetricResult(
@@ -348,9 +330,7 @@ def nout_metrics(
         coords={
             "alpha": alpha_grid,
             "n_out": n_out_grid,
-            "n_train": torch.tensor(
-                [states.shape[1]], device=device, dtype=torch.int64
-            ),
+            "n_train": torch.tensor([n_train], device=device, dtype=torch.int64),
             "shots": torch.tensor([shots], device=device, dtype=torch.int64),
             "d": d,
         },
@@ -360,7 +340,7 @@ def nout_metrics(
         metadata={
             "metric": "haar_bias_variance",
             "sweep": "nout",
-            "shots": "infinite" if shots <= 0 else shots,
+            "shots": shots,
             "methods": methods,
         },
     )
