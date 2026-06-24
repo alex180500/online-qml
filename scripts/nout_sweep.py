@@ -5,20 +5,14 @@ from online_qml import *
 parser = argparse.ArgumentParser()
 parser.add_argument("--folder", type=str, default="my-data/nout_sweep")
 parser.add_argument("-d", "--dim", type=int, default=2)
-parser.add_argument("-g", "--gamma", type=int, default=5000)
-parser.add_argument("-s", "--shots", type=int, default=1)
+parser.add_argument("-g", "--gamma", type=int, default=1000)
+parser.add_argument("-s", "--shots", type=int, default=1000)
 parser.add_argument("-a", "--alpha-max", type=int, default=512)
 parser.add_argument("--alpha-start", type=int, default=1)
 parser.add_argument("--alpha-step", type=int, default=30)
 parser.add_argument("--nseeds", type=int, default=5)
-parser.add_argument(
-    "--methods",
-    nargs="+",
-    default=["povm_prior_ost", "prior_ost"],
-)
-parser.add_argument(
-    "--obs", choices=("proj", "center", "center_norm"), default="center_norm"
-)
+parser.add_argument("--methods", nargs="+", default=shadow_methods)
+parser.add_argument("--obs", choices=("proj", "center", "center_norm"), default="proj")
 parser.add_argument("--pinv-tol", type=float, default=1e-10)
 parser.add_argument("--ridge-alpha", type=float, default=1e-4)
 parser.add_argument("--device", type=str, default="cpu")

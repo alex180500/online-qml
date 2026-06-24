@@ -14,6 +14,7 @@ from .core import (
     save_pt,
     seed_all,
     seed_run,
+    shadow_methods,
     timed,
     torch_setup,
     training_methods,
@@ -75,6 +76,7 @@ __all__ = [
     "LayerResult",
     "MetricResult",
     "training_methods",
+    "shadow_methods",
     # Runtime, IO and small utilities.
     "torch_setup",
     "random_seed",

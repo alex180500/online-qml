@@ -1,7 +1,7 @@
 from .containers import LayerResult, MetricResult, SimulationData
 from .internals import seed_all, torch_setup
 from .io import load_pt, save_json, save_metrics, save_pt
-from .methods import training_methods
+from .methods import training_methods, shadow_methods
 from .utilities import (
     MAX_SEED,
     logspace_int,
@@ -25,5 +25,6 @@ __all__ = [
     "load_pt",
     "save_json",
     "save_metrics",
+    "shadow_methods",
     "training_methods",
 ]
