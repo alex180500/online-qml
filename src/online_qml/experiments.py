@@ -1,16 +1,18 @@
 from collections.abc import Iterable
 import torch
 
-from .core.containers import LayerResult, SimulationData
+from .core.containers import LayerResult, MetricResult, SimulationData
 from .core.methods import split_methods as _split_methods
 from .estimators import (
     LinearReadoutEstimator,
     RunningOutcomeStats,
     ShadowReadoutEstimator,
 )
+from .evaluation import evaluate_layers_haar
 from .quantum import (
     as_observable_matrix,
     get_observables,
+    infinite_stats,
     sample_dm,
     sample_povm,
     shots_outcome,
@@ -239,4 +241,126 @@ def shot_layers(
         d=data.d,
         n_out=data.n_out,
         metadata={"sweep": "shots", "n_train": n_train, "methods": list(layers)},
+    )
+
+
+def nout_metrics(
+    states: torch.Tensor,
+    observable: torch.Tensor,
+    alpha_grid: torch.Tensor,
+    n_out_grid: torch.Tensor,
+    shots: int,
+    methods: Iterable[str],
+    batch_size: int,
+    rcond_state: float = 1e-10,
+    rcond_frame: float = 1e-10,
+    dtype: torch.dtype = torch.float64,
+    *,
+    seed: int | None = None,
+    pinv_tol: float | int = 1e-10,
+    ridge_alpha: float = 1e-4,
+) -> MetricResult:
+    """Evaluate Haar metrics along a changing n_out grid.
+
+    The readout layers cannot be stacked into a LayerResult because their
+    final dimension changes with n_out, so this helper evaluates each layer
+    immediately and returns only the metric grid.
+    """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive.")
+
+    d = int(round(states.shape[0] ** 0.5))
+    device = states.device
+    alpha_grid = torch.as_tensor(alpha_grid, device=device, dtype=torch.int64)
+    n_out_grid = torch.as_tensor(n_out_grid, device=device, dtype=torch.int64)
+    if alpha_grid.numel() != n_out_grid.numel():
+        raise ValueError("alpha_grid and n_out_grid must have the same length.")
+
+    obs = as_observable_matrix(observable, d * d).to(device=device)
+    methods = list(methods)
+    shadow_methods, linear_methods = _split_methods(methods)
+    out = {
+        f"{method}_{metric}": []
+        for method in [*shadow_methods, *linear_methods]
+        for metric in ("bias2", "variance")
+    }
+
+    for alpha_tensor, n_out_tensor in zip(alpha_grid, n_out_grid, strict=True):
+        alpha = int(alpha_tensor.item())
+        n_out = int(n_out_tensor.item())
+        povm = sample_povm(n_out, d=d, device=device, dtype=states.dtype)
+        shadow = None
+        if shadow_methods:
+            shadow = ShadowReadoutEstimator(
+                n_out,
+                d,
+                device=device,
+                dtype=dtype,
+                methods=shadow_methods,
+            )
+        linear = None
+        if linear_methods:
+            linear = LinearReadoutEstimator(
+                n_out, obs.shape[0], device=device, dtype=dtype
+            )
+
+        for start in range(0, states.shape[1], batch_size):
+            stop = min(start + batch_size, states.shape[1])
+            state_batch = states[:, start:stop]
+            if shots <= 0:
+                probs = infinite_stats(povm, state_batch)
+                if shadow is not None:
+                    shadow.update_probs(probs, state_batch)
+                if linear is not None:
+                    targets = get_observables(
+                        obs, state_batch, device=device, dtype=dtype
+                    )
+                    linear.update_probs(probs, targets)
+            else:
+                outcomes = shots_outcome(povm, state_batch, shots)
+                if shadow is not None:
+                    shadow.update(outcomes, state_batch)
+                if linear is not None:
+                    linear.update_outcomes(outcomes, state_batch, obs, n_out)
+
+        layers: dict[str, torch.Tensor] = {}
+        if shadow is not None:
+            layers.update(
+                shadow.layers(
+                    obs,
+                    rcond_state=rcond_state,
+                    rcond_frame=rcond_frame,
+                )
+            )
+        if linear is not None:
+            if "pinv" in linear_methods:
+                layers["pinv"] = linear.layer_pinv(tol=pinv_tol).detach().clone()
+            if "ridge" in linear_methods:
+                layers["ridge"] = linear.layer_ridge(alpha=ridge_alpha).detach().clone()
+        metrics = evaluate_layers_haar(layers, povm, obs)
+        for key in out:
+            out[key].append(metrics[key].detach().clone())
+
+        print(f"    alpha={alpha} n_out={n_out} done")
+
+    return MetricResult(
+        metrics={key: torch.stack(values) for key, values in out.items()},
+        coords={
+            "alpha": alpha_grid,
+            "n_out": n_out_grid,
+            "n_train": torch.tensor(
+                [states.shape[1]], device=device, dtype=torch.int64
+            ),
+            "shots": torch.tensor([shots], device=device, dtype=torch.int64),
+            "d": d,
+        },
+        seed=seed,
+        d=d,
+        n_out=None,
+        metadata={
+            "metric": "haar_bias_variance",
+            "sweep": "nout",
+            "shots": "infinite" if shots <= 0 else shots,
+            "methods": methods,
+        },
     )

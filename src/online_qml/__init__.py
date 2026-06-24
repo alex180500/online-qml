@@ -30,6 +30,7 @@ from .evaluation import (
     haar_metrics,
 )
 from .experiments import (
+    nout_metrics,
     ntrain_layers,
     sample_data,
     shot_layers,
@@ -118,6 +119,7 @@ __all__ = [
     "sample_data",
     "ntrain_layers",
     "shot_layers",
+    "nout_metrics",
     "state_frame_distance_grid",
     "state_frame_distances",
     "povm_frame_distance_grid",
