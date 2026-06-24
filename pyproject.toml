@@ -35,6 +35,7 @@ dev = [
     "matplotlib>=3.10.9",
     "pyqt5>=5.15.11",
     "scienceplots>=2.2.1",
+    "snakeviz>=2.2.2",
 ]
 cpu = ["torch>=2.11"]
 
