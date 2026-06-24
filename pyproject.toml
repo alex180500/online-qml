@@ -1,6 +1,6 @@
 [project]
 name = "online-qml"
-version = "0.6.1"
+version = "0.7.0"
 description = "Online quantum machine learning package, using PyTorch."
 readme = "README.md"
 requires-python = ">=3.11"
