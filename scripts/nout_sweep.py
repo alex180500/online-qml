@@ -5,7 +5,7 @@ from online_qml import *
 parser = argparse.ArgumentParser()
 parser.add_argument("--folder", type=str, default="my-data/nout_sweep")
 parser.add_argument("-d", "--dim", type=int, default=2)
-parser.add_argument("-g", "--gamma", type=int, default=1000)
+parser.add_argument("-g", "--gamma", type=int, default=500)
 parser.add_argument("-s", "--shots", type=int, default=1000)
 parser.add_argument("-a", "--alpha-max", type=int, default=512)
 parser.add_argument("--alpha-start", type=int, default=1)
