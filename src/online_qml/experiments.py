@@ -323,7 +323,6 @@ def nout_metrics(
         metrics = evaluate_layers_haar(layers, data.povm, obs)
         for key in out:
             out[key].append(metrics[key].detach().clone())
-        print(f"    alpha={alpha} n_out={n_out} done")
 
     return MetricResult(
         metrics={key: torch.stack(values) for key, values in out.items()},
