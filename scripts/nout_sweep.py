@@ -20,8 +20,6 @@ parser.add_argument("--precision", type=str, default="float64")
 parser.add_argument("--torch-threads", type=int, default=None)
 args = parser.parse_args()
 
-if args.shots <= 0:
-    raise ValueError("--shots must be positive.")
 
 device, rdtype, cdtype = torch_setup(
     device=args.device,
@@ -34,10 +32,7 @@ ntrain = args.gamma * args.dim * args.dim
 
 alpha_grid = logspace_int(args.alpha_start, args.alpha_max, args.alpha_step)
 n_out_grid = alpha_grid * args.dim * args.dim
-shot_label = f"shots_{args.shots}"
-out_dir = (
-    Path(args.folder).expanduser() / shot_label / f"d_{args.dim}" / f"ntrain_{ntrain}"
-)
+out_dir = Path(args.folder).expanduser() / f"d_{args.dim}"
 out_dir.mkdir(parents=True, exist_ok=True)
 
 run_metadata = {
