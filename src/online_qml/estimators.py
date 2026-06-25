@@ -102,6 +102,47 @@ class ShadowReadoutEstimator:
                 (self.d2, self.d2), device=self.device, dtype=self.cdtype
             )
 
+    def update(self, outcomes: torch.Tensor, states: torch.Tensor) -> None:
+        """Update from raw finite-shot outcomes.
+
+        The dispatch is chosen from the estimated temporary-memory cost.  For
+        low-shot data it uses the sparse shot-wise update.  For large-shot data
+        it first compresses outcomes into empirical probabilities and then uses
+        the dense probability update.  Both branches implement the same
+        estimator.
+
+        Args:
+            outcomes (torch.Tensor): Outcome vector with shape ``(n_batch,)`` or
+                outcome matrix with shape ``(n_batch, n_shots)``.
+            states (torch.Tensor): Flattened density matrices with shape
+                ``(d^2, n_batch)``.
+        """
+        if states.ndim != 2 or states.shape[0] != self.d2:
+            raise ValueError("Expected states with shape (d^2, n_batch).")
+        if outcomes.ndim == 1:
+            if outcomes.numel() != states.shape[1]:
+                raise ValueError("outcomes and states must have the same batch size.")
+            self.update_single_shot(outcomes, states)
+            return
+        if outcomes.ndim != 2:
+            raise ValueError(
+                "Expected outcomes with shape (n_batch,) or (n_batch, n_shots)."
+            )
+
+        n_batch, n_shots = outcomes.shape
+        if n_batch != states.shape[1]:
+            raise ValueError("outcomes and states must have the same batch size.")
+        if n_shots <= 0:
+            raise ValueError("outcomes must contain at least one shot.")
+        if n_shots == 1:
+            self.update_single_shot(outcomes[:, 0], states)
+            return
+
+        if n_shots * self.d2 <= self.n_out:
+            self.update_outcomes(outcomes, states)
+        else:
+            self.update_dense(outcomes, states)
+
     def update_probs(self, probs: torch.Tensor, states: torch.Tensor) -> None:
         """Update from dense probabilities.
 
@@ -123,17 +164,30 @@ class ShadowReadoutEstimator:
         if self.accumulate_state_frame:
             self.state_frame_acc.addmm_(rho, rho.adjoint())
 
-    def update(self, outcomes: torch.Tensor, states: torch.Tensor) -> None:
-        """Update from raw outcomes.
+    def update_dense(self, outcomes: torch.Tensor, states: torch.Tensor) -> None:
+        """Update from raw finite-shot outcomes through dense probabilities.
+
+        This branch is optimal for large-shot updates.  It first compresses the
+        raw outcomes into empirical probabilities with shape ``(n_out, n_batch)``
+        and then applies the matrix update ``P R^\\dagger``.
 
         Args:
-            outcomes (torch.Tensor): Outcome vector (n_batch,) or matrix (n_batch, n_shots).
+            outcomes (torch.Tensor): Outcome matrix with shape (n_batch, n_shots).
             states (torch.Tensor): Flattened density matrices with shape (d^2, n_batch).
         """
-        self.update_outcomes(outcomes, states)
+        n_batch, n_shots = outcomes.shape
+        idx = outcomes.to(device=self.device, dtype=torch.long)
+        increments = (
+            torch.arange(n_batch, device=self.device, dtype=torch.long).view(-1, 1)
+            * self.n_out
+        )
+        linear_idx = (idx + increments).reshape(-1)
+        counts = torch.bincount(linear_idx, minlength=n_batch * self.n_out)
+        probs = counts.view(n_batch, self.n_out).T.to(dtype=self.dtype) / n_shots
+        self.update_probs(probs, states)
 
     def update_outcomes(self, outcomes: torch.Tensor, states: torch.Tensor) -> None:
-        """Update from raw finite-shot outcomes.
+        """Update from raw finite-shot outcomes using sparse shot-wise accumulation.
 
         Args:
             outcomes (torch.Tensor): Outcome matrix with shape (n_batch, n_shots).
