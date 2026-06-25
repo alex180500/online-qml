@@ -17,3 +17,4 @@ logs/
 .antigravitycli
 .agents
 .codex
+runbg*.log
