@@ -102,15 +102,6 @@ class ShadowReadoutEstimator:
                 (self.d2, self.d2), device=self.device, dtype=self.cdtype
             )
 
-    def update(self, outcomes: torch.Tensor, states: torch.Tensor) -> None:
-        """Update from raw outcomes.
-
-        Args:
-            outcomes (torch.Tensor): Outcome vector (n_batch,) or matrix (n_batch, n_shots).
-            states (torch.Tensor): Flattened density matrices with shape (d^2, n_batch).
-        """
-        self.update_outcomes(outcomes, states)
-
     def update_probs(self, probs: torch.Tensor, states: torch.Tensor) -> None:
         """Update from dense probabilities.
 
@@ -132,26 +123,14 @@ class ShadowReadoutEstimator:
         if self.accumulate_state_frame:
             self.state_frame_acc.addmm_(rho, rho.adjoint())
 
-    def update_single_shot(self, outcomes: torch.Tensor, states: torch.Tensor) -> None:
-        """Update from one outcome per state.
+    def update(self, outcomes: torch.Tensor, states: torch.Tensor) -> None:
+        """Update from raw outcomes.
 
         Args:
-            outcomes (torch.Tensor): Outcome vector with shape (n_batch,).
+            outcomes (torch.Tensor): Outcome vector (n_batch,) or matrix (n_batch, n_shots).
             states (torch.Tensor): Flattened density matrices with shape (d^2, n_batch).
         """
-        if states.shape[0] != self.d2:
-            raise ValueError("Expected states with shape (d^2, n_batch).")
-        idx = outcomes.to(device=self.device, dtype=torch.long).reshape(-1)
-        if idx.numel() != states.shape[1]:
-            raise ValueError("outcomes and states must have the same batch size.")
-        rho_cols = states.to(device=self.device, dtype=self.cdtype)
-        rho_rows = rho_cols.T.contiguous()
-        self.raw_mu_acc.index_add_(0, idx, rho_rows)
-        ones = torch.ones(idx.numel(), device=self.device, dtype=self.dtype)
-        self.prob_sum_acc.index_add_(0, idx, ones)
-        if self.accumulate_state_frame:
-            self.state_frame_acc.addmm_(rho_cols, rho_cols.adjoint())
-        self.total_samples += idx.numel()
+        self.update_outcomes(outcomes, states)
 
     def update_outcomes(self, outcomes: torch.Tensor, states: torch.Tensor) -> None:
         """Update from raw finite-shot outcomes.
@@ -182,6 +161,27 @@ class ShadowReadoutEstimator:
         if self.accumulate_state_frame:
             self.state_frame_acc.addmm_(rho_cols, rho_cols.adjoint())
         self.total_samples += n_batch
+
+    def update_single_shot(self, outcomes: torch.Tensor, states: torch.Tensor) -> None:
+        """Update from one outcome per state.
+
+        Args:
+            outcomes (torch.Tensor): Outcome vector with shape (n_batch,).
+            states (torch.Tensor): Flattened density matrices with shape (d^2, n_batch).
+        """
+        if states.shape[0] != self.d2:
+            raise ValueError("Expected states with shape (d^2, n_batch).")
+        idx = outcomes.to(device=self.device, dtype=torch.long).reshape(-1)
+        if idx.numel() != states.shape[1]:
+            raise ValueError("outcomes and states must have the same batch size.")
+        rho_cols = states.to(device=self.device, dtype=self.cdtype)
+        rho_rows = rho_cols.T.contiguous()
+        self.raw_mu_acc.index_add_(0, idx, rho_rows)
+        ones = torch.ones(idx.numel(), device=self.device, dtype=self.dtype)
+        self.prob_sum_acc.index_add_(0, idx, ones)
+        if self.accumulate_state_frame:
+            self.state_frame_acc.addmm_(rho_cols, rho_cols.adjoint())
+        self.total_samples += idx.numel()
 
     def estimated_povm(
         self, use_state_prior: bool = False, rcond: float = 1e-10
