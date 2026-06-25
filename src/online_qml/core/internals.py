@@ -1,4 +1,5 @@
 import os
+import sys
 import torch
 
 
@@ -59,5 +60,6 @@ def torch_setup(
         print(f"precision: {precision}")
         print(f"torch threads: {torch.get_num_threads()} / os cores: {os.cpu_count()}")
         print(f"working folder: {os.getcwd()}")
+        print(f"command string: {' '.join(sys.argv)}")
 
     return device, rdtype, cdtype
