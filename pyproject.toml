@@ -50,6 +50,7 @@ cu130 = ["torch>=2.11"]
 [tool.uv]
 default-groups = ["dev", "cpu"]
 conflicts = [[{ group = "cpu" }, { extra = "cu126" }, { extra = "cu128" }, { extra = "cu130" }]]
+required-environments = ["sys_platform == 'win32' and platform_machine == 'AMD64'"]
 
 [tool.uv.sources]
 torch = [
