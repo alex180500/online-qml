@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 # ----- STATES AND OBSERVABLES -----
 
@@ -251,44 +252,39 @@ def sample_probabilities(
     povm: torch.Tensor,
     states: torch.Tensor,
     shots: int,
+    rng: np.random.Generator,
 ) -> torch.Tensor:
     """Sample empirical probabilities from multinomial counts.
 
-    This samples one multinomial count vector per state without storing
-    an intermediate tensor with shape (n_train, shots).
+    Samples one multinomial count vector per state without storing an
+    intermediate array with shape (n_train, shots).
 
     Args:
         povm: Flattened POVM with shape (n_out, d**2).
         states: Flattened states with shape (d**2, n_train).
-        shots: Number of measurement shots per state.
+        shots: Number of shots per training state.
+        rng: NumPy random Generator controlling multinomial sampling.
 
     Returns:
         Empirical probabilities with shape (n_out, n_train).
     """
-    import numpy as np
-
     if shots <= 0:
         raise ValueError("shots must be positive.")
 
     probs = infinite_stats(povm, states).T
     probs = probs.detach().cpu().double().numpy()
 
-    # Remove small negative numerical errors and renormalize.
+    # Remove small floating-point violations and renormalize each state.
     probs = np.clip(probs, 0.0, None)
-    probs /= probs.sum(axis=1, keepdims=True)
+    totals = probs.sum(axis=1, keepdims=True)
+    probs /= totals
 
-    # Modern NumPy accepts batched probability vectors:
-    # probs.shape == (n_train, n_out)
-    counts = np.random.multinomial(
-        shots,
-        probs,
+    # Batched call:
+    # probs  -> (n_train, n_out)
+    # counts -> (n_train, n_out)
+    counts = rng.multinomial(shots, probs)
+    empirical_probs = torch.from_numpy(counts).to(
+        device=states.device, dtype=states.real.dtype
     )
-
-    return (
-        torch.from_numpy(counts / shots)
-        .to(
-            device=states.device,
-            dtype=states.real.dtype,
-        )
-        .T
-    )
+    empirical_probs.div_(shots)
+    return empirical_probs.T
