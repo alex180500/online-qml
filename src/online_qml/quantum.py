@@ -143,7 +143,7 @@ def get_observables(
     return values.to(**to_kwargs)
 
 
-# ----- POVMS AND STATISTICS -----
+# ----- POVMS AND UNITARIES -----
 
 
 def sample_unitary(
@@ -195,6 +195,9 @@ def sample_povm(
     return povm.reshape(n_outcomes, d * d)
 
 
+# ---- STATISTICS -----
+
+
 def infinite_stats(povm: torch.Tensor, states: torch.Tensor) -> torch.Tensor:
     """Compute exact POVM probabilities.
 
@@ -242,3 +245,50 @@ def shots_to_statistics(outcomes: torch.Tensor, n_out: int) -> torch.Tensor:
     linear_indices = (outcomes.to(torch.long) + increments).flatten()
     counts = torch.bincount(linear_indices, minlength=n_states * n_out)
     return counts.view(n_states, n_out).to(torch.float32).T / n_shots
+
+
+def sample_probabilities(
+    povm: torch.Tensor,
+    states: torch.Tensor,
+    shots: int,
+) -> torch.Tensor:
+    """Sample empirical probabilities from multinomial counts.
+
+    This samples one multinomial count vector per state without storing
+    an intermediate tensor with shape (n_train, shots).
+
+    Args:
+        povm: Flattened POVM with shape (n_out, d**2).
+        states: Flattened states with shape (d**2, n_train).
+        shots: Number of measurement shots per state.
+
+    Returns:
+        Empirical probabilities with shape (n_out, n_train).
+    """
+    import numpy as np
+
+    if shots <= 0:
+        raise ValueError("shots must be positive.")
+
+    probs = infinite_stats(povm, states).T
+    probs = probs.detach().cpu().double().numpy()
+
+    # Remove small negative numerical errors and renormalize.
+    probs = np.clip(probs, 0.0, None)
+    probs /= probs.sum(axis=1, keepdims=True)
+
+    # Modern NumPy accepts batched probability vectors:
+    # probs.shape == (n_train, n_out)
+    counts = np.random.multinomial(
+        shots,
+        probs,
+    )
+
+    return (
+        torch.from_numpy(counts / shots)
+        .to(
+            device=states.device,
+            dtype=states.real.dtype,
+        )
+        .T
+    )
