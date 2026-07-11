@@ -17,6 +17,7 @@ training_methods = [
     "ridge",
 ]
 shadow_methods = ["ost", "state_prior_ost", "povm_prior_ost", "prior_ost"]
+main_methods = ["ost", "state_prior_ost", "pinv"]
 
 
 def shadow_method_flags(method: str) -> tuple[bool, bool]:
