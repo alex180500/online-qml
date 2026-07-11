@@ -14,6 +14,7 @@ from .quantum import (
     get_observables,
     sample_dm,
     sample_povm,
+    sample_probabilities,
     shots_outcome,
 )
 
@@ -237,6 +238,9 @@ def shot_layers(
     )
 
 
+# ----- NOUT SWEEP -----
+
+
 def nout_metrics(
     n_train: int,
     d: int,
@@ -339,6 +343,200 @@ def nout_metrics(
         metadata={
             "metric": "haar_bias_variance",
             "sweep": "nout",
+            "shots": shots,
+            "methods": methods,
+        },
+    )
+
+
+# ----- DIMENSION SWEEP -----
+
+
+def dim_metrics(
+    dim_grid: torch.Tensor,
+    observables: Iterable[torch.Tensor],
+    gamma: int,
+    alpha: int,
+    shots: int,
+    methods: Iterable[str],
+    pinv_tol: float | int = 1e-10,
+    ridge_alpha: float = 1e-4,
+    dtype: torch.dtype = torch.float64,
+    seed: int | None = None,
+) -> MetricResult:
+    """Evaluate Haar metrics along a changing Hilbert-space dimension grid.
+
+    The readout layers and observables cannot be stacked because both d^2 and
+    n_out change with dimension. This helper therefore evaluates each layer
+    immediately and returns only the metric grid. The observable for each
+    dimension is sampled by the calling script and passed through
+    ``observables``.
+
+    Args:
+        dim_grid (torch.Tensor): Hilbert-space dimensions.
+        observables (Iterable[torch.Tensor]): One observable matrix per
+            dimension.
+        gamma (int): Training overcompleteness,
+            n_train = gamma * d^2.
+        alpha (int): POVM overcompleteness,
+            n_out = alpha * d^2.
+        shots (int): Number of shots per training state.
+        methods (Iterable[str]): Method names.
+        pinv_tol (float | int): Pseudoinverse tolerance or truncation rank.
+        ridge_alpha (float): Ridge regularization parameter.
+        dtype (torch.dtype): Real accumulator dtype.
+        seed (int | None): Seed stored in the returned result.
+
+    Returns:
+        MetricResult: Haar bias and variance along the dimension grid.
+    """
+    if gamma <= 0:
+        raise ValueError("gamma must be positive.")
+    if alpha <= 0:
+        raise ValueError("alpha must be positive.")
+    if shots <= 0:
+        raise ValueError("dim_metrics requires a positive finite number of shots.")
+
+    observables = list(observables)
+    if not observables:
+        raise ValueError("observables cannot be empty.")
+
+    device = observables[0].device
+    dim_grid = torch.as_tensor(
+        dim_grid,
+        device=device,
+        dtype=torch.int64,
+    )
+
+    if dim_grid.numel() != len(observables):
+        raise ValueError("dim_grid and observables must have the same length.")
+    if torch.any(dim_grid <= 1):
+        raise ValueError("all dimensions must be greater than one.")
+
+    n_train_grid = gamma * dim_grid.square()
+    n_out_grid = alpha * dim_grid.square()
+
+    methods = list(methods)
+    shadow_methods, linear_methods = _split_methods(methods)
+
+    out = {
+        f"{method}_{metric}": []
+        for method in [*shadow_methods, *linear_methods]
+        for metric in ("bias2", "variance")
+    }
+
+    for d_tensor, n_train_tensor, n_out_tensor, observable in zip(
+        dim_grid,
+        n_train_grid,
+        n_out_grid,
+        observables,
+        strict=True,
+    ):
+        d = int(d_tensor.item())
+        n_train = int(n_train_tensor.item())
+        n_out = int(n_out_tensor.item())
+
+        obs = as_observable_matrix(
+            observable,
+            d * d,
+        ).to(device=device)
+        cdtype = obs.dtype
+
+        states = sample_dm(
+            n_train,
+            d=d,
+            device=device,
+            dtype=cdtype,
+        )
+        povm = sample_povm(
+            n_out,
+            d=d,
+            device=device,
+            dtype=cdtype,
+        )
+        probs = sample_probabilities(
+            povm,
+            states,
+            shots,
+        )
+
+        layers: dict[str, torch.Tensor] = {}
+
+        if shadow_methods:
+            shadow = ShadowReadoutEstimator(
+                n_out,
+                d,
+                device=device,
+                dtype=dtype,
+                methods=shadow_methods,
+            )
+            shadow.update_probs(
+                probs,
+                states,
+            )
+            layers.update(shadow.layers(obs))
+
+        if linear_methods:
+            targets = get_observables(
+                obs,
+                states,
+                device=device,
+                dtype=dtype,
+            )
+            linear = LinearReadoutEstimator(
+                n_out,
+                obs.shape[0],
+                device=device,
+                dtype=dtype,
+            )
+            linear.update_probs(
+                probs,
+                targets,
+            )
+
+            if "pinv" in linear_methods:
+                layers["pinv"] = linear.layer_pinv(tol=pinv_tol).detach().clone()
+
+            if "ridge" in linear_methods:
+                layers["ridge"] = linear.layer_ridge(alpha=ridge_alpha).detach().clone()
+
+        metrics = evaluate_layers_haar(
+            layers,
+            povm,
+            obs,
+        )
+
+        for key in out:
+            out[key].append(metrics[key].detach().clone())
+
+    return MetricResult(
+        metrics={key: torch.stack(values) for key, values in out.items()},
+        coords={
+            "d": dim_grid,
+            "n_train": n_train_grid,
+            "n_out": n_out_grid,
+            "gamma": torch.tensor(
+                [gamma],
+                device=device,
+                dtype=torch.int64,
+            ),
+            "alpha": torch.tensor(
+                [alpha],
+                device=device,
+                dtype=torch.int64,
+            ),
+            "shots": torch.tensor(
+                [shots],
+                device=device,
+                dtype=torch.int64,
+            ),
+        },
+        seed=seed,
+        d=None,
+        n_out=None,
+        metadata={
+            "metric": "haar_bias_variance",
+            "sweep": "dimension",
             "shots": shots,
             "methods": methods,
         },

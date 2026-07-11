@@ -31,6 +31,7 @@ from .evaluation import (
     haar_metrics,
 )
 from .experiments import (
+    dim_metrics,
     nout_metrics,
     ntrain_layers,
     sample_data,
@@ -57,6 +58,7 @@ from .quantum import (
     sample_dm,
     sample_observable,
     sample_povm,
+    sample_probabilities,
     sample_states,
     sample_unitary,
     shots_outcome,
@@ -96,6 +98,7 @@ __all__ = [
     "get_observables",
     "sample_unitary",
     "sample_povm",
+    "sample_probabilities",
     "infinite_stats",
     "shots_outcome",
     "shots_to_statistics",
@@ -118,6 +121,7 @@ __all__ = [
     "LinearReadoutEstimator",
     "RunningOutcomeStats",
     # Experiment helpers.
+    "dim_metrics",
     "sample_data",
     "ntrain_layers",
     "shot_layers",
