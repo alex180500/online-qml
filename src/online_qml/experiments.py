@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 import torch
+import numpy as np
 
 from .core.containers import LayerResult, MetricResult, SimulationData
 from .core.methods import split_methods as _split_methods
@@ -385,7 +386,7 @@ def dim_metrics(
         pinv_tol (float | int): Pseudoinverse tolerance or truncation rank.
         ridge_alpha (float): Ridge regularization parameter.
         dtype (torch.dtype): Real accumulator dtype.
-        seed (int | None): Seed stored in the returned result.
+        seed (int | None): Random seed for reproducibility.
 
     Returns:
         MetricResult: Haar bias and variance along the dimension grid.
@@ -454,11 +455,8 @@ def dim_metrics(
             device=device,
             dtype=cdtype,
         )
-        probs = sample_probabilities(
-            povm,
-            states,
-            shots,
-        )
+        rng = np.random.default_rng(seed=seed)
+        probs = sample_probabilities(povm, states, shots, rng=rng)
 
         layers: dict[str, torch.Tensor] = {}
 
