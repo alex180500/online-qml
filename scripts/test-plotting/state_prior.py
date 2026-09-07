@@ -21,7 +21,7 @@ for index, d in enumerate(DIMS):
     color = COLORS[index]
     gamma = data["n_train"] / d**2
 
-    delta = data["state_prior_ost"] - data["ost"]
+    delta = data["state_prior_ost"] - data["osst"]
     delta_q30 = data["state_prior_ost_q30"] - data["ost_q70"]
     delta_q70 = data["state_prior_ost_q70"] - data["ost_q30"]
 
